@@ -1,0 +1,7 @@
+GET /index.html HTTP/1.1
+Host: example.com
+User-Agent: curl/7.68.0
+Accept: */*
+Content-Length: 11
+
+Hello World
