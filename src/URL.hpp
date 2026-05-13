@@ -1,18 +1,10 @@
 
 #include <string>
 #include <regex>
+#include "HttpServerException.hpp"
 
 class URL{
 public:
-    class NonValidURLException : public std::exception{
-    private:
-        std::string reason;
-    public:
-        explicit NonValidURLException(const std::string& s) : reason(s) {}
-        const char* what() const noexcept override{
-            return this->reason.c_str();
-        }
-    };
     URL() : value() {}
     explicit URL(const std::string& s) : value(std::move(s)){
         // allow absolute URI, absolute path (origin-form), or asterisk (*)
@@ -21,7 +13,7 @@ public:
         std::regex::icase);
         if (!std::regex_match(value, url_pattern))
         {
-            throw NonValidURLException("URL String does not match any valid request-target pattern");
+            throw HttpServerException("URL String does not match any valid request-target pattern");
         }
     }
     const std::string str() const { return value;}
