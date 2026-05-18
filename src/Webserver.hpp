@@ -7,4 +7,5 @@ public:
     ~Webserver();
     Webserver(const Webserver& other);
     Webserver& operator=(cost Webserver& other);
-}
+    void listen(); // main loop
+};
