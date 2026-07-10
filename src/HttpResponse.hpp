@@ -1,6 +1,8 @@
 #include <string>
 #include <map>
-#include <HttpServerException.hpp>
+#include <ostream>
+#include "HttpServerException.hpp"
+#include "HttpStatusReason.hpp"
 
 
 class HttpResponse : public BaseResponse
@@ -8,8 +10,11 @@ class HttpResponse : public BaseResponse
 private:
     std::map<std::string, std::string> headers;
     std::string body;
-public:
+    unsigned int target; //filedescriptor
+    HttpStatusReason status;
     HttpResponse();
+public:
+    explicit HttpResponse(int target);
     HttpResponse(HttpResponse& other);
     HttpResponse& operator=(HttpResponse& other);
     ~HttpResponse();
@@ -20,6 +25,9 @@ public:
         }
         throw HttpServerException("Header already exists");
     }
+
+    unsigned int getStatus();
+    void getStatus(unsigned int status);
 
     void removeHeader(std::string& key)
     {
@@ -32,4 +40,16 @@ public:
         return this->headers;
     }
     
+    void writeStartLine()
+    {
+        auto s = std::string("HTTP/1.1 ");
+        s += std::to_string(status);
+        write()
+    }
+
+    void writeHeaders()
+    {
+    }
+
+    void write(const char* str);
 };
