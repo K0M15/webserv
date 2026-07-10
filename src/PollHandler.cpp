@@ -1,6 +1,12 @@
 #include "PollHandler.hpp"
 #include <algorithm>
 
+PollHandler& PollHandler::getInstance()
+{
+    static PollHandler instance;
+    return instance;
+}
+
 PollHandler::PollHandler() : timeout(3000), events() {}
 
 PollHandler::PollHandler(int t) : timeout(t), events() {}
@@ -17,7 +23,11 @@ PollHandler& PollHandler::operator=(const PollHandler& other) {
 
 PollHandler::~PollHandler() {}
 
-int PollHandler::getTimeout() const {
+void PollHandler::setTimeout(unsigned int t) {
+    timeout = t;
+}
+
+unsigned int PollHandler::getTimeout() const {
     return timeout;
 }
 

@@ -16,21 +16,25 @@ public:
         fvoid_t on_close; 
     };
 
+    static PollHandler& getInstance();
+
 private:
-    int timeout;
+    unsigned int timeout;
     std::vector<struct EventType> events;
 
 public:
     PollHandler();
-    PollHandler(int t);
-    PollHandler(const PollHandler& other);
-    PollHandler& operator=(const PollHandler& other);
+    explicit PollHandler(int t);
     ~PollHandler();
 
-    int getTimeout() const;
+public:
+    PollHandler(const PollHandler& other);
+    PollHandler& operator=(const PollHandler& other);
+
+    unsigned int getTimeout() const;
+    void setTimeout(unsigned int t);
 
     struct EventType* getEventByFD(int fd);
-
     void subscribe_read(int fd, fvoid_t on_close, fvoid_t on_readable);
     void subscribe_write(int fd, fvoid_t on_close, fvoid_t on_writeable);
     void subscribe(int fd, fvoid_t on_close, fvoid_t on_readable, fvoid_t on_writeable);

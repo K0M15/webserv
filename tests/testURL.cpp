@@ -11,7 +11,7 @@ void testURL(const std::string& urlStr, bool expectedValid) {
         } else {
             std::cout << "[FAILURE] Invalid URL accepted: " << urlStr << std::endl;
         }
-    } catch (const URL::NonValidURLException& e) {
+    } catch (const HttpServerException& e) {
         if (!expectedValid) {
             std::cout << "[SUCCESS] Invalid URL correctly rejected: " << urlStr << " (" << e.what() << ")" << std::endl;
         } else {
