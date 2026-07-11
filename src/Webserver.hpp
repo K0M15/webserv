@@ -1,16 +1,28 @@
+#pragma once
+
+#include <map>
+#include <vector>
+#include <string>
+#include <netinet/in.h>
+#include "ConfigReader.h"
+#include "ConnectionManager.hpp"
 #include "PollHandler.hpp"
 
-class Webserver
-{
-private:
-    Webserver();
-    int target_port;
-    int timeout;
+class Webserver {
 public:
-    Webserver(const WebserverSettings& settings);
+    explicit Webserver(const std::string& config_path);
     ~Webserver();
-    Webserver(const Webserver& other);
-    Webserver& operator=(const Webserver& other);
-    void listen(); // main loop
-    PollHandler& getPollHandler() { return PollHandler::getInstance(); }
+
+    void run();
+    void stop();
+
+private:
+    ConfigReader                    m_config;
+    ConnectionManager               m_conn_manager;
+    std::map<std::string, int>      m_listen_fds;
+    std::map<int, std::vector<const WebserverSettings*>> m_socket_settings;
+    volatile bool                   m_running;
+
+    int  createListenSocket(const ListenDirective& ld);
+    void setupListenSockets();
 };

@@ -41,7 +41,12 @@ void ConnectionManager::acceptConnection(int listen_fd, const WebserverSettings*
 
     int client_fd = accept(listen_fd, reinterpret_cast<sockaddr*>(&client_addr), &len);
     if (client_fd < 0)
+    {
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
+            return;
+        std::cerr << "accept() error: " << std::strerror(errno) << std::endl;
         return;
+    }
 
     if (fcntl(client_fd, F_SETFL, O_NONBLOCK) < 0)
     {
@@ -69,8 +74,15 @@ void ConnectionManager::onReadable(int fd)
     char buf[8192];
     ssize_t n = read(fd, buf, sizeof(buf));
 
-    if (n <= 0)
+    if (n == 0)
     {
+        onClose(fd);
+        return;
+    }
+    if (n < 0)
+    {
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+            return;
         onClose(fd);
         return;
     }

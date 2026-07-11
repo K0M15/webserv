@@ -1,5 +1,4 @@
 #include "ConfigReader.h"
-#include <iostream> //debug
 
 ConfigReader::ConfigReader(const std::string& file)
 {
@@ -49,17 +48,15 @@ const WebserverSettings& ConfigReader::getSettings(const std::string& route){
 std::pair<std::string, WebserverSettings> ConfigReader::readConfigBlock(const std::string& block)
 {
     std::pair<std::string, WebserverSettings> res;
-    std::cout << "Block: " << block << "\n"; //debug
     res.second = WebserverSettings::fromBlock(block);
     return res;
 }
 
-static std::string stripWhitespace(std::string& str){
-    std::string result;
-    result.reserve(str.size());
-    std::copy_if(str.begin(), str.end(), std::back_inserter(result),
-        [](unsigned char c){ return !std::isspace(c);});
-    return result;
+static std::string trim(const std::string& str) {
+    size_t start = str.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return "";
+    size_t end = str.find_last_not_of(" \t\r\n");
+    return str.substr(start, end - start + 1);
 }
 
 int ConfigReader::readConfig(std::ifstream& rawsettings)
@@ -74,21 +71,23 @@ int ConfigReader::readConfig(std::ifstream& rawsettings)
         size_t hash =  line.find('#');
         if (hash != line.npos)
             line = line.substr(0, hash); // Remove comments
-        line = stripWhitespace(line);       // Remove whitespaces
-        if (line.find("server{") != line.npos)
+        line = trim(line);
+        if (line.empty())
+            continue;
+
+        if (line.compare(0, 6, "server") == 0 && line.find('{') != std::string::npos)
         {
-            depth++;
+            depth = 1;
+            block.clear();
             continue;
         }
-        if (line.find("{") != line.npos)
-        {
+
+        if (line.find("{") != std::string::npos)
             depth++;
-        }
-        if (line.find('}') != line.npos && depth == 1)
+        if (line.find('}') != std::string::npos && depth == 1)
         {
             try
             {
-                // block.append(line);
                 auto p = readConfigBlock(block);
                 data[p.first] = p.second;
             }
@@ -99,9 +98,10 @@ int ConfigReader::readConfig(std::ifstream& rawsettings)
             }
             depth--;
             total++;
+            block.clear();
             continue;
         }
-        if (line.find('}') != line.npos)
+        if (line.find('}') != std::string::npos)
             depth--;
         block.append(line);
         block.append("\n");
