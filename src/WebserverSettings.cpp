@@ -135,7 +135,7 @@ WebserverSettings WebserverSettings::fromBlock(const std::string& block)
             {
                 parser.loc.upload_dir = valueAfter(line, "upload_dir");
             }
-            else if (line.compare(0, 9, "redirect") == 0)
+            else if (line.compare(0, 8, "redirect") == 0)
             {
                 parser.loc.redirect = valueAfter(line, "redirect");
             }
