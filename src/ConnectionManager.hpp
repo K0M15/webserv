@@ -3,6 +3,7 @@
 #include <map>
 #include "Connection.hpp"
 #include "PollHandler.hpp"
+#include "HttpResponse.hpp"
 
 class ConnectionManager {
 public:
@@ -23,5 +24,5 @@ private:
     void    closeConnection(int fd);
     bool    isRequestComplete(const Connection& conn);
     void    handleRequest(int fd);
-    void    buildResponse(Connection& conn, int status_code, const std::string& body);
+    void    sendResponse(Connection& conn, const HttpResponse& response);
 };

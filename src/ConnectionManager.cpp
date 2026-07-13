@@ -1,5 +1,6 @@
 #include "ConnectionManager.hpp"
 #include "Request.hpp"
+#include "HttpResponse.hpp"
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -188,25 +189,6 @@ bool ConnectionManager::isRequestComplete(const Connection& conn)
     return conn.read_buffer.size() >= header_end + conn.content_length;
 }
 
-static std::string codeToPhrase(int code)
-{
-    switch (code) {
-        case 200: return "OK";
-        case 201: return "Created";
-        case 204: return "No Content";
-        case 301: return "Moved Permanently";
-        case 400: return "Bad Request";
-        case 403: return "Forbidden";
-        case 404: return "Not Found";
-        case 405: return "Method Not Allowed";
-        case 413: return "Payload Too Large";
-        case 500: return "Internal Server Error";
-        case 501: return "Not Implemented";
-        case 505: return "HTTP Version Not Supported";
-        default:  return "Unknown";
-    }
-}
-
 static const char* mimeType(const std::string& filename)
 {
     auto pos = filename.rfind('.');
@@ -247,7 +229,6 @@ void ConnectionManager::handleRequest(int fd)
             std::string path;
             const std::string& url_path = req.getURL().str();
 
-            // Try location-specific root first
             const std::string* root = &conn.settings->root;
             for (const auto& loc : conn.settings->locations)
             {
@@ -260,18 +241,14 @@ void ConnectionManager::handleRequest(int fd)
             }
 
             if (url_path == "/")
-            {
                 path = *root + "/" + conn.settings->index;
-            }
             else
-            {
                 path = *root + url_path;
-            }
 
             std::ifstream file(path);
             if (!file.is_open())
             {
-                buildResponse(conn, 404, "<h1>404 Not Found</h1>");
+                sendResponse(conn, HttpResponse::error(404));
                 return;
             }
 
@@ -280,77 +257,43 @@ void ConnectionManager::handleRequest(int fd)
             std::string body = ss.str();
             file.close();
 
-            // Build response manually with proper headers
-            std::string resp;
-            resp += "HTTP/1.1 200 OK\r\n";
-            resp += "Content-Type: ";
-            resp += mimeType(path);
-            resp += "\r\n";
-            resp += "Content-Length: ";
-            resp += std::to_string(body.size());
-            resp += "\r\n";
+            HttpResponse resp;
+            resp.setStatus(200);
+            resp.setBody(body);
+            resp.addHeader("Content-Type", mimeType(path));
 
             std::string connection_header = req.getHeader("Connection");
-            if (connection_header == "keep-alive")
-            {
-                resp += "Connection: keep-alive\r\n";
-                conn.keep_alive = true;
-            }
-            else
-            {
-                resp += "Connection: close\r\n";
-                conn.keep_alive = false;
-            }
+            bool keep_alive = (connection_header == "keep-alive");
+            resp.setKeepAlive(keep_alive);
+            conn.keep_alive = keep_alive;
 
-            resp += "\r\n";
-            resp += body;
-
-            conn.response_buffer = resp;
-            conn.bytes_sent = 0;
-            conn.state = WRITING;
-
-            auto& poll = PollHandler::getInstance();
-            poll.subscribe_write(conn.fd,
-                [this, fd]() { onClose(fd); },
-                [this, fd]() { onWritable(fd); }
-            );
+            sendResponse(conn, resp);
         }
         else if (method == "POST")
         {
-            buildResponse(conn, 501, "<h1>501 Not Implemented</h1>");
+            sendResponse(conn, HttpResponse::error(501));
         }
         else if (method == "DELETE")
         {
-            buildResponse(conn, 501, "<h1>501 Not Implemented</h1>");
+            sendResponse(conn, HttpResponse::error(501));
         }
         else
         {
-            buildResponse(conn, 501, "<h1>501 Not Implemented</h1>");
+            sendResponse(conn, HttpResponse::error(501));
         }
     }
     catch (const std::exception& e)
     {
-        buildResponse(conn, 400, "<h1>400 Bad Request</h1>");
+        HttpResponse resp = HttpResponse::error(400);
+        resp.setKeepAlive(false);
+        conn.keep_alive = false;
+        sendResponse(conn, resp);
     }
 }
 
-void ConnectionManager::buildResponse(Connection& conn, int status_code, const std::string& body)
+void ConnectionManager::sendResponse(Connection& conn, const HttpResponse& response)
 {
-    std::string resp;
-    resp += "HTTP/1.1 ";
-    resp += std::to_string(status_code);
-    resp += " ";
-    resp += codeToPhrase(status_code);
-    resp += "\r\n";
-    resp += "Content-Type: text/html\r\n";
-    resp += "Content-Length: ";
-    resp += std::to_string(body.size());
-    resp += "\r\n";
-    resp += "Connection: close\r\n";
-    resp += "\r\n";
-    resp += body;
-
-    conn.response_buffer = resp;
+    conn.response_buffer = response.toString();
     conn.bytes_sent = 0;
     conn.state = WRITING;
 
