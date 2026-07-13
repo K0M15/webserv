@@ -214,21 +214,18 @@ void ConnectionManager::handleRequest(int fd)
 {
     auto it = m_connections.find(fd);
     if (it == m_connections.end())
-        return;
+        return; // maybe this should throw
 
     Connection& conn = it->second;
 
     try
     {
         Request req = Request::fromString(conn.read_buffer);
-
         const std::string& method = req.getMethod();
-
-        if (method == "GET")
+        if (method == "GET" || method == "HEAD")
         {
             std::string path;
             const std::string& url_path = req.getURL().str();
-
             const std::string* root = &conn.settings->root;
             for (const auto& loc : conn.settings->locations)
             {
@@ -259,7 +256,8 @@ void ConnectionManager::handleRequest(int fd)
 
             HttpResponse resp;
             resp.setStatus(200);
-            resp.setBody(body);
+            if (method == "GET")
+                resp.setBody(body);
             resp.addHeader("Content-Type", mimeType(path));
 
             std::string connection_header = req.getHeader("Connection");
@@ -275,6 +273,7 @@ void ConnectionManager::handleRequest(int fd)
         }
         else if (method == "DELETE")
         {
+            
             sendResponse(conn, HttpResponse::error(501));
         }
         else
