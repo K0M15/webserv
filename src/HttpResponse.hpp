@@ -1,55 +1,33 @@
+#pragma once
+
 #include <string>
 #include <map>
-#include <ostream>
-#include "HttpServerException.hpp"
 #include "HttpStatusReason.hpp"
 
-
-class HttpResponse : public BaseResponse
-{
-private:
-    std::map<std::string, std::string> headers;
-    std::string body;
-    unsigned int target; //filedescriptor
-    HttpStatusReason status;
-    HttpResponse();
+class HttpResponse {
 public:
-    explicit HttpResponse(int target);
-    HttpResponse(HttpResponse& other);
-    HttpResponse& operator=(HttpResponse& other);
+    HttpResponse();
     ~HttpResponse();
-    void addHeader(std::string& key, std::string& value) {
-        if (headers[key].empty()){
-            headers[key] = value;
-            return;
-        }
-        throw HttpServerException("Header already exists");
-    }
 
-    unsigned int getStatus();
-    void getStatus(unsigned int status);
+    void setStatus(unsigned int code);
+    void setBody(const std::string& body);
+    void setKeepAlive(bool keep);
 
-    void removeHeader(std::string& key)
-    {
-        if (!headers[key].empty())
-            headers[key] = std::string::empty();
-    }
+    void addHeader(const std::string& key, const std::string& value);
+    void removeHeader(const std::string& key);
 
-    const std::map<std::string, std::string>& getHeaders()
-    {
-        return this->headers;
-    }
-    
-    void writeStartLine()
-    {
-        auto s = std::string("HTTP/1.1 ");
-        s += std::to_string(status);
-        write()
-    }
+    std::string toString() const;
 
-    void writeHeaders()
-    {
-    }
+    unsigned int getStatus() const;
+    const std::map<std::string, std::string>& getHeaders() const;
+    const std::string& getBody() const;
+    bool getKeepAlive() const;
 
-    void write(const char* str);
+    static HttpResponse error(unsigned int code);
+
+private:
+    unsigned int m_status;
+    std::map<std::string, std::string> m_headers;
+    std::string m_body;
+    bool m_keep_alive;
 };
