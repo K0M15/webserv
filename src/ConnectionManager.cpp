@@ -221,6 +221,7 @@ void ConnectionManager::handleRequest(int fd)
     try
     {
         Request req = Request::fromString(conn.read_buffer);
+        std::cout << req.getURL().str() << req.getMethod().c_str() << std::endl;
         const std::string& method = req.getMethod();
         if (method == "GET" || method == "HEAD")
         {
@@ -273,8 +274,48 @@ void ConnectionManager::handleRequest(int fd)
         }
         else if (method == "DELETE")
         {
-            
-            sendResponse(conn, HttpResponse::error(501));
+            // If file is inside root is checked by the URL parser regex
+
+            std::string path;
+            const std::string& url_path = req.getURL().str();
+            const std::string* root = &conn.settings->root;
+            for (const auto& loc : conn.settings->locations)
+            {
+                if (url_path.compare(0, loc.second.path.size(), loc.second.path) == 0)
+                {
+                    if (loc.second.root.has_value())
+                        root = &loc.second.root.value();
+                    break;
+                }
+            }
+
+            if (url_path == "/" || req.getBody().length() != 0)
+            {
+                // not allowed to delete directorys or have a body
+                sendResponse(conn, HttpResponse::error(403));
+                return;
+            }
+            else
+                path = *root + url_path;
+
+            std::ifstream file(path);
+            // Check if target is file and exists
+            if (!file.good())
+            {
+                /*
+                    we could send 404 -> not found but that might be a security risk,
+                    however it is correct, since delete without auth is insecure
+                    in itself.
+                    OR  a 403 -> not allowed
+                */
+               sendResponse(conn, HttpResponse::error(404));
+               return;
+            }
+            file.close();
+            if (!std::remove(path.c_str()))
+                sendResponse(conn, HttpResponse::error(500));
+            sendResponse(conn, HttpResponse::error(204));
+            // sendResponse(conn, HttpResponse::error(501));
         }
         else
         {
@@ -295,6 +336,8 @@ void ConnectionManager::sendResponse(Connection& conn, const HttpResponse& respo
     conn.response_buffer = response.toString();
     conn.bytes_sent = 0;
     conn.state = WRITING;
+    
+    std::cout << "Sent " << response.getStatus() << std::endl;
 
     auto& poll = PollHandler::getInstance();
     poll.subscribe_write(conn.fd,
