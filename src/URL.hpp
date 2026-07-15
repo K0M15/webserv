@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 #include <regex>
 #include "HttpServerException.hpp"
 
@@ -21,6 +22,32 @@ public:
     void setURL(const std::string& s){
         URL url(s); //checks data
         this->value = std::move(s); // replaces current value
+    }
+    const std::string getRawQuery()
+    {
+        size_t separator = value.find('?');
+        if (separator == value.npos)
+            return "";
+        return value.substr(separator + 1);
+    }
+    const std::unordered_map<std::string, std::string> getQuery()
+    {
+        std::unordered_map<std::string, std::string> result;
+        std::string raw = getRawQuery();
+        size_t pos = 0;
+        while (pos < raw.size())
+        {
+            size_t next_and = raw.find("&", pos);
+            std::string curr_pair = (next_and == raw.npos ? raw.substr(pos) : raw.substr(pos, next_and - pos));
+            size_t curr_equ = curr_pair.find('=');
+            if (curr_equ != curr_pair.npos)
+                result[curr_pair.substr(0, curr_equ)] = curr_pair.substr(curr_equ + 1);
+            else if (curr_pair.length() != 0)
+                result[curr_pair] = "";
+            if (next_and == raw.npos) break;
+            pos = next_and + 1;
+        }
+        return result;
     }
 private:
     std::string value;
