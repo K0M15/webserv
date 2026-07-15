@@ -270,6 +270,39 @@ void ConnectionManager::handleRequest(int fd)
         }
         else if (method == "POST")
         {
+            std::string contentType = req.getHeader("Content-Type");
+
+            if (contentType.empty() && !req.getBody().empty())
+            {
+                MissingContentTypePolicy policy = conn.settings->missing_content_type_policy;
+                std::string defaultCt = conn.settings->missing_content_type_default;
+
+                const std::string& url_path = req.getURL().str();
+                for (const auto& loc : conn.settings->locations)
+                {
+                    if (url_path.compare(0, loc.second.path.size(), loc.second.path) == 0)
+                    {
+                        if (loc.second.missing_content_type_policy.has_value())
+                        {
+                            policy = loc.second.missing_content_type_policy.value();
+                            if (loc.second.missing_content_type_default.has_value())
+                                defaultCt = loc.second.missing_content_type_default.value();
+                        }
+                        break;
+                    }
+                }
+
+                switch (policy)
+                {
+                    case MissingContentTypePolicy::REJECT:
+                        sendResponse(conn, HttpResponse::error(400));
+                        return;
+                    case MissingContentTypePolicy::DEFAULT:
+                        contentType = defaultCt;
+                        break;
+                }
+            }
+
             sendResponse(conn, HttpResponse::error(501));
         }
         else if (method == "DELETE")

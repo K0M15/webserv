@@ -219,6 +219,60 @@ static void test_defaults_empty_block() {
 	check("defaults: no locations", ws.locations.empty());
 }
 
+// --------------- missing_content_type ---------------
+
+static void test_missing_content_type_default_policy() {
+    WebserverSettings ws = WebserverSettings::fromBlock("\n");
+    check("mct default: policy is REJECT",
+        ws.missing_content_type_policy == MissingContentTypePolicy::REJECT);
+}
+
+static void test_missing_content_type_reject() {
+    WebserverSettings ws = WebserverSettings::fromBlock(
+        "missing_content_type reject;\n"
+    );
+    check("mct reject: policy is REJECT",
+        ws.missing_content_type_policy == MissingContentTypePolicy::REJECT);
+}
+
+static void test_missing_content_type_default() {
+    WebserverSettings ws = WebserverSettings::fromBlock(
+        "missing_content_type default application/octet-stream;\n"
+    );
+    check("mct default: policy is DEFAULT",
+        ws.missing_content_type_policy == MissingContentTypePolicy::DEFAULT);
+    check("mct default: type is application/octet-stream",
+        ws.missing_content_type_default == "application/octet-stream");
+}
+
+static void test_missing_content_type_default_urlencoded() {
+    WebserverSettings ws = WebserverSettings::fromBlock(
+        "missing_content_type default application/x-www-form-urlencoded;\n"
+    );
+    check("mct default urlencoded: policy is DEFAULT",
+        ws.missing_content_type_policy == MissingContentTypePolicy::DEFAULT);
+    check("mct default urlencoded: type set",
+        ws.missing_content_type_default == "application/x-www-form-urlencoded");
+}
+
+static void test_missing_content_type_in_location() {
+    WebserverSettings ws = WebserverSettings::fromBlock(
+        "missing_content_type reject;\n"
+        "location /upload {\n"
+        "missing_content_type default application/octet-stream;\n"
+        "}\n"
+    );
+    check("mct location: server-level is REJECT",
+        ws.missing_content_type_policy == MissingContentTypePolicy::REJECT);
+    const auto& loc = ws.locations.at("/upload");
+    check("mct location: policy is DEFAULT",
+        loc.missing_content_type_policy.has_value());
+    check("mct location: value is DEFAULT",
+        loc.missing_content_type_policy.value() == MissingContentTypePolicy::DEFAULT);
+    check("mct location: default type",
+        loc.missing_content_type_default.value_or("") == "application/octet-stream");
+}
+
 // --------------- combined ---------------
 
 static void test_full_server_block() {
@@ -284,6 +338,13 @@ int main() {
 
 	std::cout << "\ndefaults:" << std::endl;
 	test_defaults_empty_block();
+
+	std::cout << "\nmissing_content_type:" << std::endl;
+	test_missing_content_type_default_policy();
+	test_missing_content_type_reject();
+	test_missing_content_type_default();
+	test_missing_content_type_default_urlencoded();
+	test_missing_content_type_in_location();
 
 	std::cout << "\ncombined:" << std::endl;
 	test_full_server_block();

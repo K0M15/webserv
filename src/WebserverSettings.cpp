@@ -19,6 +19,7 @@ WebserverSettings WebserverSettings::getDefaultSettings()
     settings.dirindex = false;
     settings.index = "index.html";
     settings.root = "";
+    settings.missing_content_type_policy = MissingContentTypePolicy::REJECT;
     return settings;
 }
 
@@ -100,6 +101,26 @@ WebserverSettings WebserverSettings::fromBlock(const std::string& block)
                 while (!parser.location_path.empty() && parser.location_path.back() == ' ')
                     parser.location_path.pop_back();
             }
+            else if (line.compare(0, 20, "missing_content_type") == 0)
+            {
+                std::string val = valueAfter(line, "missing_content_type");
+                if (val == "reject")
+                {
+                    settings.missing_content_type_policy = MissingContentTypePolicy::REJECT;
+                }
+                else if (val.compare(0, 7, "default") == 0)
+                {
+                    settings.missing_content_type_policy = MissingContentTypePolicy::DEFAULT;
+                    std::string rest = valueAfter(line, "missing_content_type default");
+                    if (rest.empty())
+                        throw std::runtime_error("missing_content_type default requires a media type");
+                    settings.missing_content_type_default = rest;
+                }
+                else
+                {
+                    throw std::runtime_error("invalid missing_content_type value: " + val);
+                }
+            }
             else if (line.front() != '#' && !line.empty())
             {
                 // silently skip unknown top-level directives for now
@@ -142,6 +163,26 @@ WebserverSettings WebserverSettings::fromBlock(const std::string& block)
             else if (line.compare(0, 13, "cgi_extension") == 0)
             {
                 parser.loc.cgi_extension = valueAfter(line, "cgi_extension");
+            }
+            else if (line.compare(0, 20, "missing_content_type") == 0)
+            {
+                std::string val = valueAfter(line, "missing_content_type");
+                if (val == "reject")
+                {
+                    parser.loc.missing_content_type_policy = MissingContentTypePolicy::REJECT;
+                }
+                else if (val.compare(0, 7, "default") == 0)
+                {
+                    parser.loc.missing_content_type_policy = MissingContentTypePolicy::DEFAULT;
+                    std::string rest = valueAfter(line, "missing_content_type default");
+                    if (rest.empty())
+                        throw std::runtime_error("missing_content_type default requires a media type");
+                    parser.loc.missing_content_type_default = rest;
+                }
+                else
+                {
+                    throw std::runtime_error("invalid missing_content_type value: " + val);
+                }
             }
             else if (line.front() != '#' && !line.empty())
             {

@@ -44,10 +44,11 @@ testHttpStatusReason: createTestDIR
 testWebserverSettings: createTestDIR
 	$(CXX) $(CXXFLAGS) src/WebserverSettings.cpp tests/testWebserverSettings.cpp -o bin/testWebserverSettings
 
-tests: testRequest testURL testPollHandler testHttpResponse testHttpStatusReason testWebserverSettings
+tests: testRequest testURL testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings
 	./bin/testRequest tests/sample_request.txt
 	./bin/testURL
 	./bin/testPollHandler
+	./bin/testConfigReader
 	./bin/testHttpResponse
 	./bin/testHttpStatusReason
 	./bin/testWebserverSettings

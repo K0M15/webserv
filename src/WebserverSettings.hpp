@@ -27,7 +27,7 @@ inline const char* method_name(Method m) {
         case PATCH:   return "PATCH";
         case OPTIONS: return "OPTIONS";
         case DELETE:  return "DELETE";
-        default:      return "???";
+        default:      return "UNKNOWN";
     }
 }
 
@@ -43,6 +43,11 @@ inline std::ostream& operator<<(std::ostream& os, const ListenDirective& ld) {
     return os;
 }
 
+enum class MissingContentTypePolicy {
+    REJECT,
+    DEFAULT
+};
+
 struct LocationConfig{
     std::string     path;
     std::optional<std::string> root;
@@ -52,6 +57,8 @@ struct LocationConfig{
     std::string     redirect;
     std::string     upload_dir;
     std::string     cgi_extension;
+    std::optional<MissingContentTypePolicy> missing_content_type_policy;
+    std::optional<std::string>              missing_content_type_default;
 };
 
 inline std::ostream& operator<<(std::ostream& os, const LocationConfig& loc) {
@@ -70,6 +77,16 @@ inline std::ostream& operator<<(std::ostream& os, const LocationConfig& loc) {
     if (!loc.redirect.empty())  os << "      redirect:     " << loc.redirect << "\n";
     if (!loc.upload_dir.empty())os << "      upload_dir:   " << loc.upload_dir << "\n";
     if (!loc.cgi_extension.empty()) os << "      cgi_ext:      " << loc.cgi_extension << "\n";
+    if (loc.missing_content_type_policy.has_value()) {
+        os << "      missing_content_type: ";
+        switch (loc.missing_content_type_policy.value()) {
+            case MissingContentTypePolicy::REJECT: os << "reject"; break;
+            case MissingContentTypePolicy::DEFAULT:
+                os << "default " << loc.missing_content_type_default.value_or("");
+                break;
+        }
+        os << "\n";
+    }
     os << "    }\n";
     return os;
 }
@@ -85,6 +102,8 @@ public:
     std::string                     root;
     std::string                     index;
     bool                            dirindex;
+    MissingContentTypePolicy        missing_content_type_policy;
+    std::string                     missing_content_type_default;
     std::map<std::string, LocationConfig> locations;
     static WebserverSettings fromBlock(const std::string& block);
 };
@@ -106,6 +125,14 @@ inline std::ostream& operator<<(std::ostream& os, const WebserverSettings& ws) {
     os << "  root:          " << ws.root << "\n";
     os << "  index:         " << ws.index << "\n";
     os << "  autoindex:     " << (ws.dirindex ? "on" : "off") << "\n";
+    os << "  missing_content_type: ";
+    switch (ws.missing_content_type_policy) {
+        case MissingContentTypePolicy::REJECT: os << "reject"; break;
+        case MissingContentTypePolicy::DEFAULT:
+            os << "default " << ws.missing_content_type_default;
+            break;
+    }
+    os << "\n";
     for (const auto& [path, loc] : ws.locations) {
         os << loc;
     }
