@@ -1,6 +1,7 @@
 #include "HttpResponse.hpp"
 #include "HttpStatusReason.hpp"
 #include <sstream>
+#include <dirent.h>
 
 HttpResponse::HttpResponse()
     : m_status(200), m_keep_alive(false)
@@ -87,5 +88,29 @@ HttpResponse HttpResponse::error(unsigned int code)
     resp.setStatus(code);
     resp.setBody("<h1>" + std::to_string(code) + " " + HttpStatusReason::reason(code) + "</h1>");
     resp.m_headers["Content-Type"] = "text/html";
+    return resp;
+}
+
+HttpResponse HttpResponse::dirindex(const std::string& path, const std::string prefix)
+{
+    HttpResponse resp;
+    resp.setStatus(200);
+    resp.addHeader("Content-Type", "text/html");
+    std::ostringstream document;
+    document    << "<!DOCTYPE html><html><head><title>Index of " << prefix << "</title></head><body><h1>Index of "<< prefix <<"</h1><hr><pre>";
+    DIR* dir = opendir(path.c_str());
+    if (dir)
+    {
+        struct dirent* entry;
+        while ((entry = readdir(dir)) != nullptr)
+        {
+            if (std::string(entry->d_name) == "." || std::string(entry->d_name) == "..")
+                continue;
+            size_t s = entry->d_reclen;
+            document << "<a href=\"" << prefix + "/" + entry->d_name << "\">" << entry->d_name <<"</a>"<< "\t\t" << s <<" byte <br>\n";
+        }
+    }
+    document << "</pre></body></html>";
+    resp.setBody(document.str());
     return resp;
 }

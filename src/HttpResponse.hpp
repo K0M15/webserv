@@ -24,6 +24,7 @@ public:
     bool getKeepAlive() const;
 
     static HttpResponse error(unsigned int code);
+    static HttpResponse dirindex(const std::string& path, const std::string prefix);
 
 private:
     unsigned int m_status;

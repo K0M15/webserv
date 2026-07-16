@@ -221,12 +221,12 @@ void ConnectionManager::handleRequest(int fd)
     try
     {
         Request req = Request::fromString(conn.read_buffer);
-        std::cout << req.getURL().str() << req.getMethod().c_str() << std::endl;
+        std::cout << req.getMethod().c_str() << " " << req.getURL().str();
         const std::string& method = req.getMethod();
         if (method == "GET" || method == "HEAD")
         {
             std::string path;
-            const std::string& url_path = req.getURL().str();
+            std::string url_path = req.getURL().str();
             const std::string* root = &conn.settings->root;
             for (const auto& loc : conn.settings->locations)
             {
@@ -238,35 +238,32 @@ void ConnectionManager::handleRequest(int fd)
                 }
             }
 
-            if (url_path == "/")
-                path = *root + "/" + conn.settings->index;
+            if (url_path.back() == '/')
+                path = *root + url_path + conn.settings->index;
             else
                 path = *root + url_path;
-
             std::ifstream file(path);
-            if (!file.is_open())
+            if (file.is_open())
             {
-                sendResponse(conn, HttpResponse::error(404));
+                std::stringstream ss;
+                ss << file.rdbuf();
+                file.close();
+
+                HttpResponse resp;
+                resp.setStatus(200);
+                if (method == "GET")
+                    resp.setBody(ss.str());
+                resp.addHeader("Content-Type", mimeType(path));
+                sendResponse(conn, resp);
                 return;
             }
 
-            std::stringstream ss;
-            ss << file.rdbuf();
-            std::string body = ss.str();
-            file.close();
-
-            HttpResponse resp;
-            resp.setStatus(200);
-            if (method == "GET")
-                resp.setBody(body);
-            resp.addHeader("Content-Type", mimeType(path));
-
-            std::string connection_header = req.getHeader("Connection");
-            bool keep_alive = (connection_header == "keep-alive");
-            resp.setKeepAlive(keep_alive);
-            conn.keep_alive = keep_alive;
-
-            sendResponse(conn, resp);
+            if (url_path.back() == '/' && conn.settings->dirindex)
+            {
+                sendResponse(conn, HttpResponse::dirindex(*root + url_path, url_path));
+                return;
+            }
+            sendResponse(conn, HttpResponse::error(404));
         }
         else if (method == "POST")
         {
@@ -302,7 +299,8 @@ void ConnectionManager::handleRequest(int fd)
                         break;
                 }
             }
-
+            // Can the endpoint take POST?
+            // What is the effect -> CGI, Fileupload, ...
             sendResponse(conn, HttpResponse::error(501));
         }
         else if (method == "DELETE")
@@ -370,7 +368,7 @@ void ConnectionManager::sendResponse(Connection& conn, const HttpResponse& respo
     conn.bytes_sent = 0;
     conn.state = WRITING;
     
-    std::cout << "Sent " << response.getStatus() << std::endl;
+    std::cout << ", sent " << response.getStatus() << std::endl;
 
     auto& poll = PollHandler::getInstance();
     poll.subscribe_write(conn.fd,
