@@ -1,7 +1,11 @@
 #include "HttpResponse.hpp"
 #include "HttpStatusReason.hpp"
 #include <sstream>
+#include <iostream>
+#include <iomanip>
+#include <string.h>
 #include <dirent.h>
+#include <sys/stat.h>
 
 HttpResponse::HttpResponse()
     : m_status(200), m_keep_alive(false)
@@ -97,20 +101,36 @@ HttpResponse HttpResponse::dirindex(const std::string& path, const std::string p
     resp.setStatus(200);
     resp.addHeader("Content-Type", "text/html");
     std::ostringstream document;
-    document    << "<!DOCTYPE html><html><head><title>Index of " << prefix << "</title></head><body><h1>Index of "<< prefix <<"</h1><hr><pre>";
+    document << "<!DOCTYPE html><html><head><title>Index of " << prefix << "</title>";
+    document << "<style type=\"text/css\">td{min-width:300px}thead{text-align:left}body{font-family:monospace}\n</style>";
+    document << "</head>";
+    document << "<body><h1>Index of "<< prefix <<"</h1><hr><table>";
+    document << "<thead><tr><th>Name</th><th>Size</th><th>Last modified</th></tr></thead>";
     DIR* dir = opendir(path.c_str());
     if (dir)
     {
         struct dirent* entry;
+        struct stat entryStat{};
         while ((entry = readdir(dir)) != nullptr)
         {
             if (std::string(entry->d_name) == "." || std::string(entry->d_name) == "..")
                 continue;
-            size_t s = entry->d_reclen;
-            document << "<a href=\"" << prefix + "/" + entry->d_name << "\">" << entry->d_name <<"</a>"<< "\t\t" << s <<" byte <br>\n";
+            if (stat(std::string(path + entry->d_name).c_str(), &entryStat))
+            {
+#ifndef DEBUG
+                std::cout << "[Error] stat reading " << path << entry->d_name << " , returned error: " << strerror(errno) << std::endl;
+                document << "<tr><td><a href=\"" << prefix + "/" + entry->d_name << "\">" << entry->d_name <<"</a></td><td>" << entry->d_reclen <<" byte </td></tr>\n";                
+                continue;
+#endif /* DEBUG */
+            }
+            size_t s = entryStat.st_size;
+            timespec mtime = entryStat.st_mtim;
+            std::tm local_tm = *std::localtime(&mtime.tv_sec);
+            document << "<tr><td><a href=\"" << prefix + "/" + entry->d_name << "\">" << entry->d_name <<"</a></td><td>" << s <<" byte </td><td>" << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S") << "</td></tr>\n";
         }
     }
-    document << "</pre></body></html>";
+    document << "</table>";
+    document << "</body></html>";
     resp.setBody(document.str());
     return resp;
 }
