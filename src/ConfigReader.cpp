@@ -9,10 +9,13 @@ ConfigReader::ConfigReader(const std::string& file)
     switch (configresult)
     {
     case 1:
-        // break;
+#ifdef ACCEPT_PARTIAL
+        break; //if we break here, errors are accepted
+#else
+        [[fallthrough]];
+#endif // ACCEPT_PARTIAL 
     case 2:
         throw HttpServerException("Error reading file!");
-        break;
     default:
         break;
     }
@@ -49,6 +52,15 @@ std::pair<std::string, WebserverSettings> ConfigReader::readConfigBlock(const st
 {
     std::pair<std::string, WebserverSettings> res;
     res.second = WebserverSettings::fromBlock(block);
+
+    const WebserverSettings& s = res.second;
+    if (!s.server_name.empty())
+        res.first = s.server_name;
+    else if (!s.listen.empty())
+        res.first = s.listen[0].address + ":" + std::to_string(s.listen[0].port);
+    else
+        throw HttpServerException("Server block missing server_name or listen directive");
+
     return res;
 }
 
@@ -89,7 +101,13 @@ int ConfigReader::readConfig(std::ifstream& rawsettings)
             try
             {
                 auto p = readConfigBlock(block);
-                data[p.first] = p.second;
+                if (data.find(p.first) != data.end())
+                {
+                    bad++;
+                    std::cerr << "Duplicate server_name: " << p.first << '\n';
+                }
+                else
+                    data[p.first] = p.second;
             }
             catch(const std::exception& e)
             {

@@ -98,7 +98,7 @@ public:
     WebserverSettings() = default;
     ~WebserverSettings() = default;
     std::vector<ListenDirective>    listen;
-    std::vector<std::string>        server_name;
+    std::string                     server_name;
     std::string                     root;
     std::string                     index;
     bool                            dirindex;
@@ -116,12 +116,7 @@ inline std::ostream& operator<<(std::ostream& os, const WebserverSettings& ws) {
         os << ws.listen[i];
     }
     os << "\n";
-    os << "  server_name:   ";
-    for (size_t i = 0; i < ws.server_name.size(); ++i) {
-        if (i) os << " ";
-        os << ws.server_name[i];
-    }
-    os << "\n";
+    os << "  server_name:   " << ws.server_name << "\n";
     os << "  root:          " << ws.root << "\n";
     os << "  index:         " << ws.index << "\n";
     os << "  autoindex:     " << (ws.dirindex ? "on" : "off") << "\n";

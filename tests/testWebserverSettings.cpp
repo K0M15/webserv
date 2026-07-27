@@ -67,17 +67,8 @@ static void test_server_name_single() {
 	WebserverSettings ws = WebserverSettings::fromBlock(
 		"server_name example.com;\n"
 	);
-	check("server_name single: 1 name", ws.server_name.size() == 1);
-	check("server_name single: is example.com", ws.server_name[0] == "example.com");
-}
-
-static void test_server_name_multiple() {
-	WebserverSettings ws = WebserverSettings::fromBlock(
-		"server_name example.com www.example.com;\n"
-	);
-	check("server_name multiple: 2 names", ws.server_name.size() == 2);
-	check("server_name multiple: first", ws.server_name[0] == "example.com");
-	check("server_name multiple: second", ws.server_name[1] == "www.example.com");
+	check("server_name single: 11 characters", ws.server_name.length() == 11);
+	check("server_name single: is example.com", ws.server_name == "example.com");
 }
 
 // --------------- root ---------------
@@ -314,7 +305,6 @@ int main() {
 
 	std::cout << "\nserver_name:" << std::endl;
 	test_server_name_single();
-	test_server_name_multiple();
 
 	std::cout << "\nroot:" << std::endl;
 	test_root();

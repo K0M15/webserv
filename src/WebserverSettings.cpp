@@ -20,6 +20,7 @@ WebserverSettings WebserverSettings::getDefaultSettings()
     settings.index = "index.html";
     settings.root = "";
     settings.missing_content_type_policy = MissingContentTypePolicy::REJECT;
+    settings.server_name = "";
     return settings;
 }
 
@@ -70,8 +71,12 @@ WebserverSettings WebserverSettings::fromBlock(const std::string& block)
                 // split by spaces
                 std::istringstream ns(val);
                 std::string name;
-                while (ns >> name)
-                    settings.server_name.push_back(name);
+                if (!settings.server_name.empty()) // second time of server_name
+                    throw std::runtime_error("Duplicate server_name in settings");
+                ns >> name;
+                settings.server_name = name;
+                if (ns >> name)
+                    throw std::runtime_error("Unknown server_name entry");
             }
             else if (line.compare(0, 4, "root") == 0)
             {
