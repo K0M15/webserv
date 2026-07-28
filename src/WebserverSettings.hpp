@@ -1,6 +1,6 @@
 #pragma once
 
-#include <map>
+#include <unordered_map>
 #include <string>
 #include <ostream>
 #include <utility>
@@ -59,6 +59,17 @@ struct LocationConfig{
     std::string     cgi_extension;
     std::optional<MissingContentTypePolicy> missing_content_type_policy;
     std::optional<std::string>              missing_content_type_default;
+    std::vector<std::string>        methods;
+    std::string                     redirect;
+    std::string                     upload_dir;
+    /*
+        contains extension and interpreter path
+        in conf:
+            cgi py  python3
+            cgi php php-cgi
+    */
+    std::unordered_map<std::string, std::string>
+                                    cgi_ext_interpreter;
 };
 
 inline std::ostream& operator<<(std::ostream& os, const LocationConfig& loc) {
@@ -92,19 +103,41 @@ inline std::ostream& operator<<(std::ostream& os, const LocationConfig& loc) {
 }
 
 class WebserverSettings{
-private:
-    static WebserverSettings getDefaultSettings();
 public:
-    WebserverSettings() = default;
+    WebserverSettings(): 
+        listen(),
+        server_name(),
+        root(),
+        index(),
+        error_page(),
+        dirindex(false),
+        missing_content_type_policy(MissingContentTypePolicy::REJECT),
+        missing_content_type_default(),
+        locations(){}
     ~WebserverSettings() = default;
     std::vector<ListenDirective>    listen;
-    std::vector<std::string>        server_name;
+    std::string                     server_name;
     std::string                     root;
     std::string                     index;
+    std::unordered_map<unsigned int, std::string>
+                                    error_page;
     bool                            dirindex;
     MissingContentTypePolicy        missing_content_type_policy;
     std::string                     missing_content_type_default;
-    std::map<std::string, LocationConfig> locations;
+    std::unordered_map<std::string, LocationConfig> locations;
+    unsigned long                   max_header_size;
+    unsigned long                   max_body_size;
+    std::vector<std::string>        methods;
+    std::string                     redirect;
+    std::string                     upload_dir;
+    /*
+        contains extension and interpreter path
+        in conf:
+            cgi py  python3
+            cgi php php-cgi
+    */
+    std::unordered_map<std::string, std::string>
+                                    cgi_ext_interpreter;
     static WebserverSettings fromBlock(const std::string& block);
 };
 
