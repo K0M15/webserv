@@ -11,6 +11,7 @@ class Request {
 private:
     std::string method;
     URL url;
+    std::string query;
     std::string version;
     std::map<std::string, std::string> headers;
     std::string body;

@@ -38,7 +38,7 @@ Request Request::fromString(const std::string& rawRequest)
     // check content length, then attach body
     if (req.headers.count("Content-Length"))
     {
-        size_t len = std::stoul(req.headers["Content-Length"]);
+        size_t len = std::stoul(req.headers["Content-Length"]);//TODO strtoul
         req.body.resize(len);
         stream.read(&req.body[0], len);
     }
