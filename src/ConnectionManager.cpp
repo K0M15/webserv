@@ -171,7 +171,7 @@ bool ConnectionManager::isRequestComplete(const Connection& conn)
         const_cast<Connection&>(conn).headers_complete = true;
 
         std::string header_part = conn.read_buffer.substr(0, header_end);
-        size_t pos = header_part.find("Content-Length: ");
+        size_t pos = header_part.find("Content-Length: ") ? header_part.find("Content-Length: ") : header_part.find("content-length: ") ? header_part.find("content-length: ") : std::string::npos ;
         if (pos != std::string::npos)
         {
             pos += 16;
@@ -232,8 +232,8 @@ void ConnectionManager::handleRequest(int fd)
             {
                 if (url_path.compare(0, loc.second.path.size(), loc.second.path) == 0)
                 {
-                    if (loc.second.root.has_value())
-                        root = &loc.second.root.value();
+                    if (!loc.second.root.empty())
+                        root = &loc.second.root;
                     break;
                 }
             }
@@ -279,11 +279,11 @@ void ConnectionManager::handleRequest(int fd)
                 {
                     if (url_path.compare(0, loc.second.path.size(), loc.second.path) == 0)
                     {
-                        if (loc.second.missing_content_type_policy.has_value())
+                        if (loc.second.missing_content_type_policy != MissingContentTypePolicy::UNSET)
                         {
-                            policy = loc.second.missing_content_type_policy.value();
-                            if (loc.second.missing_content_type_default.has_value())
-                                defaultCt = loc.second.missing_content_type_default.value();
+                            policy = loc.second.missing_content_type_policy;
+                            if (!loc.second.missing_content_type_default.empty())
+                                defaultCt = loc.second.missing_content_type_default;
                         }
                         break;
                     }
@@ -291,6 +291,8 @@ void ConnectionManager::handleRequest(int fd)
 
                 switch (policy)
                 {
+                    case MissingContentTypePolicy::UNSET:
+                        break;
                     case MissingContentTypePolicy::REJECT:
                         sendResponse(conn, HttpResponse::error(400));
                         return;
@@ -314,8 +316,8 @@ void ConnectionManager::handleRequest(int fd)
             {
                 if (url_path.compare(0, loc.second.path.size(), loc.second.path) == 0)
                 {
-                    if (loc.second.root.has_value())
-                        root = &loc.second.root.value();
+                    if (!loc.second.root.empty())
+                        root = &loc.second.root;
                     break;
                 }
             }
