@@ -25,23 +25,43 @@ Request Request::fromString(const std::string& rawRequest)
         if (line.back() == '\r')
             line.pop_back();
         std::stringstream ss(line);
-        ss >> req.method >> req.url >> req.version;
+        if (!(ss >> req.method >> req.url >> req.version))
+            throw std::runtime_error("Malformed request line");
     }
     //parse headers, last line is empty
     while (std::getline(stream, line) && line != "\r" && !line.empty())
     {
         if (line.back() == '\r')
             line.pop_back();
-        auto pos = line.find(": ");
+        auto pos = line.find(":");
         if (pos != std::string::npos)
-            req.headers[line.substr(0, pos)] = line.substr(pos + 2);
-    }
+        {
+            std::string key = line.substr(0, pos);
+            std::string value = line.substr(pos + 1);
+
+            while (!value.empty() && value.front() == ' ')
+                    value.erase(0, 1);
+            std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c)
+                {
+                    return std::tolower(c);
+                });
+
+            req.headers[key] = value;
+        }
+        }
     // check content length, then attach body
-    if (req.headers.count("Content-Length"))
+     if (auto it = req.headers.find("content-length"); it != req.headers.end())
     {
-        size_t len = std::stoul(req.headers["Content-Length"]);//TODO strtoul
+        const std::string& value = it->second;
+        unsigned long len{};
+        auto result = std::from_chars(value.data(), value.data() + value.size(), len);
+        if (result.ec != std::errc() || result.ptr != value.data() + value.size())
+            throw std::runtime_error("Invalid Content-Length");
+
         req.body.resize(len);
-        stream.read(&req.body[0], len);
+        stream.read(req.body.data(), len);
+        if (stream.gcount() != static_cast<std::streamsize>(len))
+            throw std::runtime_error("Incomplete request body");
     }
     // Return built object
     return req;
