@@ -20,6 +20,7 @@ WebserverSettings WebserverSettings::getDefaultSettings()
     settings.index = "index.html";
     settings.root = "";
     settings.missing_content_type_policy = MissingContentTypePolicy::REJECT;
+    settings.max_body_size = 1 * 1024 * 1024; // 1MB like Nginx
     return settings;
 }
 
@@ -85,6 +86,10 @@ WebserverSettings WebserverSettings::fromBlock(const std::string& block)
             {
                 std::string val = valueAfter(line, "dirindex");
                 settings.dirindex = (val == "on" || val == "true");
+            }
+            else if (line.compare(0, 20, "client_max_body_size"))
+            {
+                
             }
             else if (line.compare(0, 8, "location") == 0)
             {
