@@ -7,6 +7,7 @@ Request& Request::operator=(const Request& other) {
         url = other.url;
         version = other.version;
         headers = other.headers;
+        query = other.query;
         body = other.body;
     }
     return *this;
