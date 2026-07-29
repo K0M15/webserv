@@ -1,38 +1,39 @@
 #include "WebserverSettings.hpp"
 #include <sstream>
 #include <cstdlib>
+#include <algorithm>
+#include <cctype>
 
 
 
-// static std::string valueAfter(const std::string& line, const std::string& keyword)
-// {
-//     size_t pos = keyword.size();
-//     while (pos < line.size() && (line[pos] == ' ' || line[pos] == '\t'))
-//         ++pos;
-//     std::string val = line.substr(pos);
-//     if (!val.empty() && val.back() == ';')
-//         val.pop_back();
-//     return val;
-// }
+WebserverSettings WebserverSettings::getDefaultSettings()
+{
+    WebserverSettings settings;
+    settings.dirindex = false;
+    settings.index = "index.html";
+    settings.root = "";
+    settings.missing_content_type_policy = MissingContentTypePolicy::REJECT;
+    return settings;
+}
 
 struct ConfigTarget{
-    std::string*                root;
-    std::string*                index;
-    bool*                       dirindex;
-    MissingContentTypePolicy*   mct_policy;
-    std::string*                mct_default;
+    std::string*                            root;
+    std::string*                            index;
+    bool*                                   dirindex;
+    MissingContentTypePolicy*               mct_policy;
+    std::string*                            mct_default;
     std::unordered_map<unsigned int, std::string>*
-                                error_page;
-    std::vector<ListenDirective>*
-                                interface;
-    std::string*                server_name;
-    unsigned long*              max_header_size;
-    unsigned long*              max_body_size;
-    std::vector<std::string>*   methods;
-    std::string*                redirect;
-    std::string*                upload_dir;
+                                            error_page;
+    std::vector<ListenDirective>*           interface;
+    std::vector<std::string>*               server_name;
+    unsigned long*                          max_header_size;
+    unsigned long*                          max_body_size;
+    std::vector<Method>*                    methods;
+    std::string*                            redirect;
+    std::string*                            upload_dir;
+    std::string*                            cgi_extension;
     std::unordered_map<std::string, std::string>*
-                                cgi_ext_interpreter;
+                                            cgi_ext_interpreter;
 };
 using Handler = std::function<void(const std::string& val, ConfigTarget target)>;
 /* val is the value after the key in config and what should be placed in the target*/
@@ -83,7 +84,10 @@ const std::unordered_map<std::string, Handler> entryParser = {
     {"server_name", PUT_INTO(
         if(t.server_name == nullptr)
             throw std::runtime_error("server_name in location block");
-        *t.server_name = val;
+        std::istringstream ns(val);
+        std::string name;
+        while (ns >> name)
+            t.server_name->push_back(name);
     )},
     {"max_header_size", PUT_INTO(
         if (t.max_header_size == nullptr)
@@ -99,27 +103,61 @@ const std::unordered_map<std::string, Handler> entryParser = {
         unsigned long mbs = std::stoul(val);
         if (mbs < 50 || mbs > 8192)
             throw std::runtime_error("max_body_size must be between 50 and 8192 bytes");
-        *t.max_header_size = mbs;
+        *t.max_body_size = mbs;
     )},
     {"methods", PUT_INTO(
         // consume each method and put into vector
+        if (t.methods == nullptr)
+            throw std::runtime_error("'methods' directive has no target");
+        std::istringstream ms(val);
+        std::string name;
+        while (ms >> name) {
+            if (name == "get")      t.methods->push_back(GET);
+            else if (name == "head")    t.methods->push_back(HEAD);
+            else if (name == "post")    t.methods->push_back(POST);
+            else if (name == "put")     t.methods->push_back(PUT);
+            else if (name == "patch")   t.methods->push_back(PATCH);
+            else if (name == "options") t.methods->push_back(OPTIONS);
+            else if (name == "delete")  t.methods->push_back(DELETE);
+            else throw std::runtime_error("unknown method: " + name);
+        }
+        if (t.methods->empty())
+            throw std::runtime_error("'methods' requires at least one method");
     )},
     {"redirect", PUT_INTO(
         *t.redirect = val;
     )},
     {"cgi", PUT_INTO(
-        // first = fileending, second = interpreter path
-    )}
+        if (t.cgi_ext_interpreter == nullptr)
+            throw std::runtime_error("'cgi' directive has no target");
+        std::istringstream cs(val);
+        std::string ext;
+        std::string interp;
+        cs >> ext >> interp;
+        if (ext.empty() || interp.empty())
+            throw std::runtime_error("'cgi' requires <extension> <interpreter-path>: " + val);
+        (*t.cgi_ext_interpreter)[ext] = interp;
+    )},
+    {"cgi_extension", PUT_INTO(
+        if (t.cgi_extension == nullptr)
+            throw std::runtime_error("'cgi_extension' not allowed here");
+        *t.cgi_extension = val;
+    )},
+    {"upload_dir", PUT_INTO(
+        if (t.upload_dir == nullptr)
+            throw std::runtime_error("'upload_dir' not allowed here");
+        *t.upload_dir = val;
+    )},
 };
 
 static void dispatch(const std::string& line, ConfigTarget target) {
-    // Split "root /var/www;" -> keyword="root", value="/var/www"
     size_t space = line.find_first_of(" \t");
     std::string keyword = line.substr(0, space);
+    for (auto& c : keyword) c = std::tolower(c);
+
     std::string value;
     if (space != std::string::npos) {
         value = line.substr(space + 1);
-        // strip trailing ';'
         if (!value.empty() && value.back() == ';')
             value.pop_back();
     }
@@ -151,8 +189,7 @@ std::string parseLocationPath(const std::string& line)
 
 WebserverSettings WebserverSettings::fromBlock(const std::string& block)
 {
-    
-    WebserverSettings settings;
+    WebserverSettings settings = getDefaultSettings();
     ConfigTarget starget{
         .root       = &settings.root,
         .index      = &settings.index,
@@ -163,30 +200,49 @@ WebserverSettings WebserverSettings::fromBlock(const std::string& block)
         .interface  = &settings.listen,
         .server_name = &settings.server_name,
         .max_header_size = &settings.max_header_size,
-        .max_body_size = &settings.max_header_size,
+        .max_body_size = &settings.max_body_size,
         .methods = &settings.methods,
         .redirect = &settings.redirect,
         .upload_dir = &settings.upload_dir,
+        .cgi_extension = nullptr,
         .cgi_ext_interpreter = &settings.cgi_ext_interpreter,
     };
     LocationConfig current;
     bool in_loc = false;
-    ConfigTarget loc_target;
+    ConfigTarget loc_target{};
     loc_target.server_name = nullptr;
     loc_target.interface = nullptr;
-    loc_target.max_body_size = nullptr;
     loc_target.max_header_size = nullptr;
+    loc_target.max_body_size = nullptr;
+    loc_target.cgi_extension = nullptr;
 
     std::istringstream stream(block);
     std::string line;
     while(std::getline(stream, line))
     {
         if (line.empty() || line[0] == '#') continue;
-        if (!in_loc && line.compare(0, 8, "location") == 0) {
-            in_loc = true;
-            current = LocationConfig();
-            std::string path = parseLocationPath(line);
-            continue;
+
+        // case-insensitive "location" check
+        if (!in_loc && line.size() > 8) {
+            std::string prefix = line.substr(0, 8);
+            for (auto& c : prefix) c = std::tolower(c);
+            if (prefix == "location") {
+                in_loc = true;
+                current = LocationConfig();
+                current.path = parseLocationPath(line);
+                loc_target.root = &current.root;
+                loc_target.index = &current.index;
+                loc_target.dirindex = &current.dirindex;
+                loc_target.mct_policy = &current.missing_content_type_policy;
+                loc_target.mct_default = &current.missing_content_type_default;
+                loc_target.error_page = &current.error_page;
+                loc_target.methods = &current.methods;
+                loc_target.redirect = &current.redirect;
+                loc_target.upload_dir = &current.upload_dir;
+                loc_target.cgi_extension = &current.cgi_extension;
+                loc_target.cgi_ext_interpreter = &current.cgi_ext_interpreter;
+                continue;
+            }
         }
         if (in_loc && line == "}") {
             settings.locations[current.path] = current;
