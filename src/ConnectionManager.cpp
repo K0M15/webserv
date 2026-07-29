@@ -210,11 +210,61 @@ static const char* mimeType(const std::string& filename)
     return "application/octet-stream";
 }
 
+static const LocationConfig* matchLocation(
+    const std::unordered_map<std::string, LocationConfig>& locations,
+    const std::string& url_path)
+{
+    const LocationConfig* best = nullptr;
+    for (const auto& [path, loc] : locations) {
+        if (url_path.compare(0, path.size(), path) == 0) {
+            if (!best || path.size() > best->path.size())
+                best = &loc;
+        }
+    }
+    return best;
+}
+
+static Method parseMethod(const std::string& method) {
+    if (method == "GET")     return GET;
+    if (method == "HEAD")    return HEAD;
+    if (method == "POST")    return POST;
+    if (method == "PUT")     return PUT;
+    if (method == "PATCH")   return PATCH;
+    if (method == "OPTIONS") return OPTIONS;
+    if (method == "DELETE")  return DELETE;
+    return GET;
+}
+
+static bool isMethodAllowed(
+    const std::string& method,
+    const WebserverSettings* settings,
+    const LocationConfig* location)
+{
+    const std::vector<Method>& allowed = (location && !location->methods.empty())
+        ? location->methods : settings->methods;
+    if (allowed.empty())
+        return true;
+    Method m = parseMethod(method);
+    for (auto a : allowed)
+        if (a == m)
+            return true;
+    return false;
+}
+
+static std::string buildAllowHeader(const std::vector<Method>& methods) {
+    std::string h;
+    for (size_t i = 0; i < methods.size(); ++i) {
+        if (i) h += ", ";
+        h += method_name(methods[i]);
+    }
+    return h;
+}
+
 void ConnectionManager::handleRequest(int fd)
 {
     auto it = m_connections.find(fd);
     if (it == m_connections.end())
-        return; // maybe this should throw
+        return;
 
     Connection& conn = it->second;
 
@@ -223,25 +273,30 @@ void ConnectionManager::handleRequest(int fd)
         Request req = Request::fromString(conn.read_buffer);
         std::cout << req.getMethod().c_str() << " " << req.getURL().str();
         const std::string& method = req.getMethod();
+        const std::string& url_path = req.getURL().str();
+        const LocationConfig* location = matchLocation(conn.settings->locations, url_path);
+
+        if (!isMethodAllowed(method, conn.settings, location))
+        {
+            const std::vector<Method>& allowed = (location && !location->methods.empty())
+                ? location->methods : conn.settings->methods;
+            HttpResponse resp = HttpResponse::error(405);
+            resp.addHeader("Allow", buildAllowHeader(allowed));
+            resp.setKeepAlive(false);
+            sendResponse(conn, resp);
+            return;
+        }
+
         if (method == "GET" || method == "HEAD")
         {
+            std::string root = (location && !location->root.empty())
+                ? location->root : conn.settings->root;
             std::string path;
-            std::string url_path = req.getURL().str();
-            const std::string* root = &conn.settings->root;
-            for (const auto& loc : conn.settings->locations)
-            {
-                if (url_path.compare(0, loc.second.path.size(), loc.second.path) == 0)
-                {
-                    if (!loc.second.root.empty())
-                        root = &loc.second.root;
-                    break;
-                }
-            }
 
             if (url_path.back() == '/')
-                path = *root + url_path + conn.settings->index;
+                path = root + url_path + conn.settings->index;
             else
-                path = *root + url_path;
+                path = root + url_path;
             std::ifstream file(path);
             if (file.is_open())
             {
@@ -260,7 +315,7 @@ void ConnectionManager::handleRequest(int fd)
 
             if (url_path.back() == '/' && conn.settings->dirindex)
             {
-                sendResponse(conn, HttpResponse::dirindex(*root + url_path, url_path));
+                sendResponse(conn, HttpResponse::dirindex(root + url_path, url_path));
                 return;
             }
             sendResponse(conn, HttpResponse::error(404));
@@ -274,19 +329,11 @@ void ConnectionManager::handleRequest(int fd)
                 MissingContentTypePolicy policy = conn.settings->missing_content_type_policy;
                 std::string defaultCt = conn.settings->missing_content_type_default;
 
-                const std::string& url_path = req.getURL().str();
-                for (const auto& loc : conn.settings->locations)
+                if (location && location->missing_content_type_policy != MissingContentTypePolicy::UNSET)
                 {
-                    if (url_path.compare(0, loc.second.path.size(), loc.second.path) == 0)
-                    {
-                        if (loc.second.missing_content_type_policy != MissingContentTypePolicy::UNSET)
-                        {
-                            policy = loc.second.missing_content_type_policy;
-                            if (!loc.second.missing_content_type_default.empty())
-                                defaultCt = loc.second.missing_content_type_default;
-                        }
-                        break;
-                    }
+                    policy = location->missing_content_type_policy;
+                    if (!location->missing_content_type_default.empty())
+                        defaultCt = location->missing_content_type_default;
                 }
 
                 switch (policy)
@@ -307,40 +354,21 @@ void ConnectionManager::handleRequest(int fd)
         }
         else if (method == "DELETE")
         {
-            // If file is inside root is checked by the URL parser regex
-
+            std::string root = (location && !location->root.empty())
+                ? location->root : conn.settings->root;
             std::string path;
-            const std::string& url_path = req.getURL().str();
-            const std::string* root = &conn.settings->root;
-            for (const auto& loc : conn.settings->locations)
-            {
-                if (url_path.compare(0, loc.second.path.size(), loc.second.path) == 0)
-                {
-                    if (!loc.second.root.empty())
-                        root = &loc.second.root;
-                    break;
-                }
-            }
 
             if (url_path == "/" || req.getBody().length() != 0)
             {
-                // not allowed to delete directorys or have a body
                 sendResponse(conn, HttpResponse::error(403));
                 return;
             }
             else
-                path = *root + url_path;
+                path = root + url_path;
 
             std::ifstream file(path);
-            // Check if target is file and exists
             if (!file.good())
             {
-                /*
-                    we could send 404 -> not found but that might be a security risk,
-                    however it is correct, since delete without auth is insecure
-                    in itself.
-                    OR  a 403 -> not allowed
-                */
                sendResponse(conn, HttpResponse::error(404));
                return;
             }
@@ -348,7 +376,6 @@ void ConnectionManager::handleRequest(int fd)
             if (!std::remove(path.c_str()))
                 sendResponse(conn, HttpResponse::error(500));
             sendResponse(conn, HttpResponse::error(204));
-            // sendResponse(conn, HttpResponse::error(501));
         }
         else
         {
