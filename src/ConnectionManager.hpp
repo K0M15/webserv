@@ -25,4 +25,7 @@ private:
     bool    isRequestComplete(const Connection& conn);
     void    handleRequest(int fd);
     void    sendResponse(Connection& conn, const HttpResponse& response);
+    HttpResponse errorResponse(unsigned int code,
+                               const WebserverSettings* settings,
+                               const LocationConfig* location);
 };

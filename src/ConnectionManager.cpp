@@ -260,6 +260,45 @@ static std::string buildAllowHeader(const std::vector<Method>& methods) {
     return h;
 }
 
+HttpResponse ConnectionManager::errorResponse(
+    unsigned int code,
+    const WebserverSettings* settings,
+    const LocationConfig* location)
+{
+    const std::string* error_path = nullptr;
+    if (location) {
+        auto it = location->error_page.find(code);
+        if (it != location->error_page.end())
+            error_path = &it->second;
+    }
+    if (!error_path) {
+        auto it = settings->error_page.find(code);
+        if (it != settings->error_page.end())
+            error_path = &it->second;
+    }
+
+    if (error_path) {
+        std::string root = (location && !location->root.empty())
+            ? location->root : settings->root;
+        std::string full_path = root + *error_path;
+
+        std::ifstream file(full_path);
+        if (file.is_open()) {
+            std::stringstream ss;
+            ss << file.rdbuf();
+            file.close();
+
+            HttpResponse resp;
+            resp.setStatus(code);
+            resp.setBody(ss.str());
+            resp.addHeader("Content-Type", mimeType(full_path));
+            return resp;
+        }
+    }
+
+    return HttpResponse::error(code);
+}
+
 void ConnectionManager::handleRequest(int fd)
 {
     auto it = m_connections.find(fd);
@@ -280,7 +319,7 @@ void ConnectionManager::handleRequest(int fd)
         {
             const std::vector<Method>& allowed = (location && !location->methods.empty())
                 ? location->methods : conn.settings->methods;
-            HttpResponse resp = HttpResponse::error(405);
+            HttpResponse resp = errorResponse(405, conn.settings, location);
             resp.addHeader("Allow", buildAllowHeader(allowed));
             resp.setKeepAlive(false);
             sendResponse(conn, resp);
@@ -318,7 +357,7 @@ void ConnectionManager::handleRequest(int fd)
                 sendResponse(conn, HttpResponse::dirindex(root + url_path, url_path));
                 return;
             }
-            sendResponse(conn, HttpResponse::error(404));
+            sendResponse(conn, errorResponse(404, conn.settings, location));
         }
         else if (method == "POST")
         {
@@ -341,16 +380,14 @@ void ConnectionManager::handleRequest(int fd)
                     case MissingContentTypePolicy::UNSET:
                         break;
                     case MissingContentTypePolicy::REJECT:
-                        sendResponse(conn, HttpResponse::error(400));
+                        sendResponse(conn, errorResponse(400, conn.settings, location));
                         return;
                     case MissingContentTypePolicy::DEFAULT:
                         contentType = defaultCt;
                         break;
                 }
             }
-            // Can the endpoint take POST?
-            // What is the effect -> CGI, Fileupload, ...
-            sendResponse(conn, HttpResponse::error(501));
+            sendResponse(conn, errorResponse(501, conn.settings, location));
         }
         else if (method == "DELETE")
         {
@@ -360,7 +397,7 @@ void ConnectionManager::handleRequest(int fd)
 
             if (url_path == "/" || req.getBody().length() != 0)
             {
-                sendResponse(conn, HttpResponse::error(403));
+                sendResponse(conn, errorResponse(403, conn.settings, location));
                 return;
             }
             else
@@ -369,22 +406,22 @@ void ConnectionManager::handleRequest(int fd)
             std::ifstream file(path);
             if (!file.good())
             {
-               sendResponse(conn, HttpResponse::error(404));
+               sendResponse(conn, errorResponse(404, conn.settings, location));
                return;
             }
             file.close();
             if (!std::remove(path.c_str()))
-                sendResponse(conn, HttpResponse::error(500));
+                sendResponse(conn, errorResponse(500, conn.settings, location));
             sendResponse(conn, HttpResponse::error(204));
         }
         else
         {
-            sendResponse(conn, HttpResponse::error(501));
+            sendResponse(conn, errorResponse(501, conn.settings, location));
         }
     }
     catch (const std::exception& e)
     {
-        HttpResponse resp = HttpResponse::error(400);
+        HttpResponse resp = errorResponse(400, conn.settings, nullptr);
         resp.setKeepAlive(false);
         conn.keep_alive = false;
         sendResponse(conn, resp);
