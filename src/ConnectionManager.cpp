@@ -334,6 +334,23 @@ void ConnectionManager::handleRequest(int fd)
             return;
         }
 
+        if (method == "OPTIONS")
+        {
+            const std::vector<Method>& allowed = (location && !location->methods.empty())
+                ? location->methods : conn.settings->methods;
+
+            std::string allow = allowed.empty()
+                ? std::string("GET, HEAD, POST, OPTIONS, DELETE")
+                : buildAllowHeader(allowed);
+
+            HttpResponse resp;
+            resp.setStatus(204);
+            resp.addHeader("Allow", allow);
+            resp.addHeader("Content-Length", "0");
+            sendResponse(conn, resp);
+            return;
+        }
+
         if (method == "GET" || method == "HEAD")
         {
             std::string root = (location && !location->root.empty())
