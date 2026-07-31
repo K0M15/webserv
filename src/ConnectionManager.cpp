@@ -91,6 +91,14 @@ void ConnectionManager::onReadable(int fd)
     conn.last_active = std::time(nullptr);
     conn.read_buffer.append(buf, static_cast<size_t>(n));
 
+    if (conn.settings && conn.read_buffer.size() > conn.settings->max_body_size)
+    {
+        HttpResponse resp = errorResponse(413, conn.settings, nullptr);
+        resp.setKeepAlive(false);
+        sendResponse(conn, resp);
+        return;
+    }
+
     if (isRequestComplete(conn))
     {
         conn.state = PROCESSING;

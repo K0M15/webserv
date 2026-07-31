@@ -101,8 +101,8 @@ const std::unordered_map<std::string, Handler> entryParser = {
         if (t.max_body_size == nullptr)
             throw std::runtime_error("max_body_size inside location block");
         unsigned long mbs = std::stoul(val);
-        if (mbs < 50 || mbs > 8192)
-            throw std::runtime_error("max_body_size must be between 50 and 8192 bytes");
+        if (mbs < 50 || mbs > 100UL * 1024UL * 1024UL)
+            throw std::runtime_error("max_body_size must be between 50 and 104857600 bytes");
         *t.max_body_size = mbs;
     )},
     {"methods", PUT_INTO(
