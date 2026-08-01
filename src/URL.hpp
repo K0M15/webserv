@@ -23,7 +23,7 @@ public:
         URL url(s); //checks data
         this->value = std::move(s); // replaces current value
     }
-    const std::string getRawQuery()
+    const std::string getRawQuery() const
     {
         size_t separator = value.find('?');
         if (separator == value.npos)
