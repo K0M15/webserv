@@ -1,10 +1,11 @@
 #define _GNU_SOURCE 1   // execvpe is a GNU extension; harmless if already defined
-#include "CGHandler.hpp"
+#include "CGIHandler.hpp"
 
 #include <unistd.h>     // fork, execvpe, dup2, pipe2, chdir, _exit
 #include <fcntl.h>      // O_CLOEXEC, F_SETFD, FD_CLOEXEC
 #include <sys/wait.h>   // waitpid
 #include <sys/socket.h> // inet_ntoa needs arpa/inet.h; Connection.hpp pulls it in
+#include <limits.h>     // PATH_MAX
 #include <cstdio>       // perror
 #include <cstdlib>      // getenv
 #include <cstring>      // strerror
@@ -136,12 +137,17 @@ void CGIHandler::spawnCGI(){
         close(stdin_pipe[0]);  close(stdin_pipe[1]);
         close(stdout_pipe[0]); close(stdout_pipe[1]);
 
+        char abs_buf[PATH_MAX];
+        std::string absPath = m_filePath;
+        if (realpath(m_filePath.c_str(), abs_buf))
+            absPath = abs_buf;
+
         // relative paths
         std::string dir = m_filePath.substr(0, m_filePath.find_last_of('/'));
         if (!dir.empty())
             chdir(dir.c_str());
-        char* argv[] = { const_cast<char*>("python"),
-                         const_cast<char*>(m_filePath.c_str()), nullptr };
+        char* argv[] = { const_cast<char*>("python3"),
+                         const_cast<char*>(absPath.c_str()), nullptr };
         execvpe("python3", argv, m_env.data());
 
         std::perror("execvpe");
