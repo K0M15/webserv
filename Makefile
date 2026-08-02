@@ -44,7 +44,10 @@ testHttpStatusReason: createTestDIR
 testWebserverSettings: createTestDIR
 	$(CXX) $(CXXFLAGS) src/WebserverSettings.cpp tests/testWebserverSettings.cpp -o bin/testWebserverSettings
 
-tests: testRequest testURL testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings
+testCGI: createTestDIR
+	$(CXX) $(CXXFLAGS) src/CGIHandler.cpp src/Request.cpp src/ConnectionManager.cpp src/PollHandler.cpp src/HttpResponse.cpp src/HttpStatusReason.cpp tests/testCGI.cpp -o bin/testCGI
+
+tests: testRequest testURL testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI
 	./bin/testRequest tests/sample_request.txt
 	./bin/testURL
 	./bin/testPollHandler
@@ -52,7 +55,8 @@ tests: testRequest testURL testPollHandler testConfigReader testHttpResponse tes
 	./bin/testHttpResponse
 	./bin/testHttpStatusReason
 	./bin/testWebserverSettings
+	./bin/testCGI
 
 re: fclean all
 
-.PHONY: all clean fclean re testRequest testURL testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings tests
+.PHONY: all clean fclean re testRequest testURL testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI tests
