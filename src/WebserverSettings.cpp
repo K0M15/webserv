@@ -13,6 +13,7 @@ WebserverSettings WebserverSettings::getDefaultSettings()
     settings.index = "index.html";
     settings.root = "";
     settings.missing_content_type_policy = MissingContentTypePolicy::REJECT;
+    settings.max_body_size = 1 * 1024 * 1024; // 1MB like Nginx
     return settings;
 }
 

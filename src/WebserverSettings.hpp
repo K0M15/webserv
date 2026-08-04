@@ -1,6 +1,8 @@
 #pragma once
 
 #include <unordered_map>
+#include <map>
+#include <charconv>
 #include <string>
 #include <ostream>
 #include <utility>
@@ -115,6 +117,7 @@ public:
     std::unordered_map<unsigned int, std::string>
                                     error_page;
     bool                            dirindex;
+    size_t                          max_body_size; // in Bytes
     MissingContentTypePolicy        missing_content_type_policy;
     std::string                     missing_content_type_default;
     std::unordered_map<std::string, LocationConfig> locations;
@@ -144,6 +147,7 @@ inline std::ostream& operator<<(std::ostream& os, const WebserverSettings& ws) {
     os << "  root:          " << ws.root << "\n";
     os << "  index:         " << ws.index << "\n";
     os << "  autoindex:     " << (ws.dirindex ? "on" : "off") << "\n";
+    os << "  max_body_size: " << ws.max_body_size << " bytes\n";
     os << "  missing_content_type: ";
     switch (ws.missing_content_type_policy) {
         case MissingContentTypePolicy::UNSET:  os << "unset"; break;

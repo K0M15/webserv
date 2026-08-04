@@ -3,13 +3,49 @@ NAME = webserv
 CXX = c++
 CXXFLAGS = -Wall -Wextra -Werror -std=c++17 -Isrc -g
 
-SRCS = src/main.cpp src/PollHandler.cpp src/ConnectionManager.cpp src/HttpResponse.cpp src/HttpStatusReason.cpp src/Request.cpp src/Webserver.cpp src/ConfigReader.cpp src/WebserverSettings.cpp
-OBJS = $(SRCS:.cpp=.o)
+SRCS =  src/main.cpp \
+		src/PollHandler.cpp \
+		src/ConnectionManager.cpp \
+		src/HttpResponse.cpp \
+		src/HttpStatusReason.cpp \
+		src/Request.cpp \
+		src/Webserver.cpp \
+		src/ConfigReader.cpp \
+		src/WebserverSettings.cpp
 
-all: $(NAME)
+OBJ_DIR = obj
+
+OBJS =  obj/main.o \
+		obj/PollHandler.o \
+		obj/ConnectionManager.o \
+		obj/HttpResponse.o \
+		obj/HttpStatusReason.o \
+		obj/Request.o \
+		obj/Webserver.o \
+		obj/ConfigReader.o \
+		obj/WebserverSettings.o
+
+GREEN = \033[1;32m
+WHITE = \033[0m
+
+all: 
+	@echo "Building Webserv..." 
+	@$(MAKE) --no-print-directory $(NAME)
+	@echo "▗▖ ▗▖▗▄▄▄▖▗▄▄▖  ▗▄▄▖▗▄▄▄▖▗▄▄▖ ▗▖  ▗▖"
+	@echo "▐▌ ▐▌▐▌   ▐▌ ▐▌▐▌   ▐▌   ▐▌ ▐▌▐▌  ▐▌"
+	@echo "▐▌ ▐▌▐▛▀▀▘▐▛▀▚▖ ▝▀▚▖▐▛▀▀▘▐▛▀▚▖▐▌  ▐▌"
+	@echo "▐▙█▟▌▐▙▄▄▖▐▙▄▞▘▗▄▄▞▘▐▙▄▄▖▐▌ ▐▌ ▝▚▞▘ "
+	@echo "A 42 project by: afelger, dabierma, and jpflegha"
+	@echo "$(GREEN)Build Completed -> Run with ./webserv test.conf$(WHITE)"
 
 $(NAME): $(OBJS)
-	$(CXX) $(CXXFLAGS) $(OBJS) -o $(NAME)
+	@$(CXX) $(CXXFLAGS) $(OBJS) -o $(NAME)
+
+$(OBJ_DIR)/%.o: src/%.cpp | $(OBJ_DIR)
+	@$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(OBJ_DIR):
+	mkdir -p $(OBJ_DIR)
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
@@ -18,10 +54,10 @@ createTestDIR:
 	mkdir -p bin
 
 clean:
-	rm -f $(OBJS)
+	@rm -f $(OBJS)
 
 fclean: clean
-	rm -f $(NAME)
+	@rm -f $(NAME)
 
 testRequest: createTestDIR
 	$(CXX) $(CXXFLAGS) src/Request.cpp tests/testRequest.cpp -o bin/testRequest

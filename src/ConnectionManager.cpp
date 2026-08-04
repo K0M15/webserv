@@ -168,7 +168,7 @@ void ConnectionManager::closeConnection(int fd)
     onClose(fd);
 }
 
-bool ConnectionManager::isRequestComplete(const Connection& conn)
+bool ConnectionManager::isRequestComplete(Connection& conn)
 {
     if (!conn.headers_complete)
     {
@@ -176,20 +176,20 @@ bool ConnectionManager::isRequestComplete(const Connection& conn)
         if (header_end == std::string::npos)
             return false;
 
-        const_cast<Connection&>(conn).headers_complete = true;
+        conn.headers_complete = true;
 
         std::string header_part = conn.read_buffer.substr(0, header_end);
-        size_t pos = header_part.find("Content-Length: ") ? header_part.find("Content-Length: ") : header_part.find("content-length: ") ? header_part.find("content-length: ") : std::string::npos ;
+        size_t pos = header_part.find("content-length:");
         if (pos != std::string::npos)
         {
             pos += 16;
             size_t end = header_part.find("\r\n", pos);
             std::string len_str = header_part.substr(pos, end - pos);
-            const_cast<Connection&>(conn).content_length = std::stoul(len_str);
+            conn.content_length = std::stoul(len_str);
         }
         else
         {
-            const_cast<Connection&>(conn).content_length = 0;
+            conn.content_length = 0;
         }
     }
 
@@ -216,20 +216,6 @@ static const char* mimeType(const std::string& filename)
     if (ext == ".xml")  return "application/xml";
     if (ext == ".svg")  return "image/svg+xml";
     return "application/octet-stream";
-}
-
-static const LocationConfig* matchLocation(
-    const std::unordered_map<std::string, LocationConfig>& locations,
-    const std::string& url_path)
-{
-    const LocationConfig* best = nullptr;
-    for (const auto& [path, loc] : locations) {
-        if (url_path.compare(0, path.size(), path) == 0) {
-            if (!best || path.size() > best->path.size())
-                best = &loc;
-        }
-    }
-    return best;
 }
 
 static Method parseMethod(const std::string& method) {
@@ -305,6 +291,30 @@ HttpResponse ConnectionManager::errorResponse(
     }
 
     return HttpResponse::error(code);
+// Picks the most specific (longest) location whose path is a full-segment
+// prefix of url_path - e.g. location "/upload" matches "/upload" and
+// "/upload/x", but NOT "/upload.txt" or "/uploadFoo" 
+// Mirrors how nginx resolves prefix locations.
+static const LocationConfig* matchLocation(const std::string& url_path,
+    const std::map<std::string, LocationConfig>& locations)
+{
+    const LocationConfig* matched = nullptr;
+    for (const auto& loc : locations)
+    {
+        const std::string& consider = loc.second.path;
+        // do we have an exact match?
+        if (url_path.compare(0, consider.size(), consider) != 0)
+            continue;
+        //
+        bool at_boundary = url_path.size() == consider.size()
+            || (!consider.empty() && consider.back() == '/')
+            || url_path[consider.size()] == '/';
+        if (!at_boundary)
+            continue;
+        if (!matched || consider.size() > matched->path.size())
+            matched = &loc.second;
+    }
+    return matched;
 }
 
 void ConnectionManager::handleRequest(int fd)
@@ -356,6 +366,11 @@ void ConnectionManager::handleRequest(int fd)
             std::string root = (location && !location->root.empty())
                 ? location->root : conn.settings->root;
             std::string path;
+            std::string url_path = req.getURL().str();
+            const std::string* root = &conn.settings->root;
+            const LocationConfig* matched = matchLocation(url_path, conn.settings->locations);
+            if (matched && matched->root.has_value())
+                root = &matched->root.value();
 
             if (url_path.back() == '/')
                 path = root + url_path + conn.settings->index;
@@ -393,11 +408,13 @@ void ConnectionManager::handleRequest(int fd)
                 MissingContentTypePolicy policy = conn.settings->missing_content_type_policy;
                 std::string defaultCt = conn.settings->missing_content_type_default;
 
-                if (location && location->missing_content_type_policy != MissingContentTypePolicy::UNSET)
+                const std::string& url_path = req.getURL().str();
+                const LocationConfig* matched = matchLocation(url_path, conn.settings->locations);
+                if (matched && matched->missing_content_type_policy.has_value())
                 {
-                    policy = location->missing_content_type_policy;
-                    if (!location->missing_content_type_default.empty())
-                        defaultCt = location->missing_content_type_default;
+                    policy = matched->missing_content_type_policy.value();
+                    if (matched->missing_content_type_default.has_value())
+                        defaultCt = matched->missing_content_type_default.value();
                 }
 
                 switch (policy)
@@ -412,13 +429,63 @@ void ConnectionManager::handleRequest(int fd)
                         break;
                 }
             }
-            sendResponse(conn, errorResponse(501, conn.settings, location));
+            if (req.getBody().size() > conn.settings->max_body_size)
+            {
+                sendResponse(conn, HttpResponse::error(413));
+                return;
+            }
+
+            const std::string& url_path = req.getURL().str();
+            const LocationConfig* matched = matchLocation(url_path, conn.settings->locations);
+
+            // TODO: add CGI handler when merged
+
+            if (!matched || matched->upload_dir.empty())
+            {
+                // No upload_dir configured for this location -> POST not supported here
+                sendResponse(conn, HttpResponse::error(403));
+                return;
+            }
+
+            size_t pos = url_path.find('?');
+            std::string filename = url_path.substr(matched->path.size());
+            if (pos < url_path.size())
+                filename = url_path.substr(matched->path.size(), pos - matched->path.size()); // remove query
+            while (!filename.empty() && filename.front() == '/')
+                filename.erase(0, 1);
+            if (filename.empty())
+            {
+                sendResponse(conn, HttpResponse::error(400));
+                return;
+            }
+
+            std::string dest_path = matched->upload_dir + "/" + filename;
+            std::ofstream outfile(dest_path, std::ios::binary | std::ios::trunc);
+            if (!outfile.is_open())
+            {
+                sendResponse(conn, HttpResponse::error(500));
+                return;
+            }
+            outfile.write(req.getBody().data(), static_cast<std::streamsize>(req.getBody().size()));
+            outfile.close();
+
+            HttpResponse resp;
+            resp.setStatus(201);
+            resp.addHeader("Content-Type", "text/html");
+            resp.addHeader("Location", url_path);
+            resp.setBody("<h1>201 Created</h1>");
+            sendResponse(conn, resp);
         }
         else if (method == "DELETE")
         {
             std::string root = (location && !location->root.empty())
                 ? location->root : conn.settings->root;
             std::string path;
+            const std::string& url_path = req.getURL().str();
+            const std::string* root = &conn.settings->root;
+            const LocationConfig* matched = matchLocation(url_path, conn.settings->locations);
+            if (matched && matched->root.has_value())
+                root = &matched->root.value();
 
             if (url_path == "/" || req.getBody().length() != 0)
             {
