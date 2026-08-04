@@ -60,6 +60,7 @@ Request Request::fromString(const std::string& rawRequest)
 
         req.body.resize(len);
         stream.read(req.body.data(), len);
+        //Maybe 
         if (stream.gcount() != static_cast<std::streamsize>(len))
             throw std::runtime_error("Incomplete request body");
     }

@@ -87,9 +87,13 @@ WebserverSettings WebserverSettings::fromBlock(const std::string& block)
                 std::string val = valueAfter(line, "dirindex");
                 settings.dirindex = (val == "on" || val == "true");
             }
-            else if (line.compare(0, 20, "client_max_body_size"))
+            else if (line.compare(0, 20, "client_max_body_size") == 0)
             {
-                
+                // FIX: was missing "== 0", so this branch matched almost every line
+                // (compare() returns nonzero for a non-match) and, being an else-if
+                // before the "location" check, silently swallowed every location
+                // block - none of them ever reached settings.locations.
+                settings.max_body_size = std::strtoul(valueAfter(line, "client_max_body_size").c_str(), nullptr, 10);
             }
             else if (line.compare(0, 8, "location") == 0)
             {
@@ -105,6 +109,11 @@ WebserverSettings WebserverSettings::fromBlock(const std::string& block)
                 // trim trailing space
                 while (!parser.location_path.empty() && parser.location_path.back() == ' ')
                     parser.location_path.pop_back();
+                // FIX: LocationConfig::path was never populated (only used as the
+                // map key below), so callers matching on loc.second.path always
+                // compared against "" - and comparing 0 characters always "matches",
+                // making every location resolve to whichever one iterated first.
+                parser.loc.path = parser.location_path;
             }
             else if (line.compare(0, 20, "missing_content_type") == 0)
             {

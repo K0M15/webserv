@@ -299,9 +299,60 @@ void ConnectionManager::handleRequest(int fd)
                         break;
                 }
             }
-            // Can the endpoint take POST?
-            // What is the effect -> CGI, Fileupload, ...
-            sendResponse(conn, HttpResponse::error(501));
+            if (req.getBody().size() > conn.settings->max_body_size)
+            {
+                sendResponse(conn, HttpResponse::error(413));
+                return;
+            }
+
+            const std::string& url_path = req.getURL().str();
+            const LocationConfig* matched = nullptr;
+            for (const auto& loc : conn.settings->locations)
+            {
+                if (url_path.compare(0, loc.second.path.size(), loc.second.path) == 0)
+                {
+                    // NEW: keep the longest matching location path, not the first one found.
+                    // locations is a std::map, so iteration order is alphabetical ("/" sorts
+                    // before "/upload") - breaking on the first match would always pick "/"
+                    // since it is a prefix of every path, hiding more specific locations
+                    // like "/upload" that actually define an upload_dir.
+                    if (!matched || loc.second.path.size() > matched->path.size())
+                        matched = &loc.second;
+                }
+            }
+
+            if (!matched || matched->upload_dir.empty())
+            {
+                // No upload_dir configured for this location -> POST not supported here
+                sendResponse(conn, HttpResponse::error(403));
+                return;
+            }
+
+            std::string filename = url_path.substr(matched->path.size());
+            while (!filename.empty() && filename.front() == '/')
+                filename.erase(0, 1);
+            if (filename.empty())
+            {
+                sendResponse(conn, HttpResponse::error(400));
+                return;
+            }
+
+            std::string dest_path = matched->upload_dir + "/" + filename;
+            std::ofstream outfile(dest_path, std::ios::binary | std::ios::trunc);
+            if (!outfile.is_open())
+            {
+                sendResponse(conn, HttpResponse::error(500));
+                return;
+            }
+            outfile.write(req.getBody().data(), static_cast<std::streamsize>(req.getBody().size()));
+            outfile.close();
+
+            HttpResponse resp;
+            resp.setStatus(201);
+            resp.addHeader("Content-Type", "text/html");
+            resp.addHeader("Location", url_path);
+            resp.setBody("<h1>201 Created</h1>");
+            sendResponse(conn, resp);
         }
         else if (method == "DELETE")
         {
