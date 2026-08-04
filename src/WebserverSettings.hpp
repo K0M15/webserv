@@ -117,12 +117,11 @@ public:
     std::unordered_map<unsigned int, std::string>
                                     error_page;
     bool                            dirindex;
-    size_t                          max_body_size; // in Bytes
     MissingContentTypePolicy        missing_content_type_policy;
     std::string                     missing_content_type_default;
     std::unordered_map<std::string, LocationConfig> locations;
-    unsigned long                   max_header_size;
-    unsigned long                   max_body_size;
+    size_t                          max_header_size;
+    size_t                          max_body_size; // in Bytes
     std::string                     redirect;
     std::string                     upload_dir;
     std::unordered_map<std::string, std::string>
