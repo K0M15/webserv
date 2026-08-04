@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include <charconv>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -11,6 +12,7 @@ class Request {
 private:
     std::string method;
     URL url;
+    std::string query;
     std::string version;
     std::map<std::string, std::string> headers;
     std::string body;
@@ -25,7 +27,14 @@ public:
     const std::string& getMethod() const { return method; }
     const std::string& getBody() const { return body; }
     const std::string& getHeader(const std::string& key) const {
-        std::map<std::string, std::string>::const_iterator it = headers.find(key);
+        // fromString() stores header keys lowercased, so lookups must
+        // lowercase the key too, or e.g. getHeader("Content-Type") never matches.
+        std::string lower_key = key;
+        std::transform(lower_key.begin(), lower_key.end(), lower_key.begin(), [](unsigned char c)
+            {
+                return std::tolower(c);
+            });
+        std::map<std::string, std::string>::const_iterator it = headers.find(lower_key);
         if (it != headers.end()) {
             return it->second;
         }
