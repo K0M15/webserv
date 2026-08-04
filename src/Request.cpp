@@ -38,17 +38,18 @@ Request Request::fromString(const std::string& rawRequest)
         {
             std::string key = line.substr(0, pos);
             std::string value = line.substr(pos + 1);
-
+            // RFC Requirement: A server MUST reject any HTTP/1.1 request that contains whitespace before the colon with a 400 Bad Request status code.
+            if (std::any_of(key.begin(), key.end(), [](unsigned char c){ return std::isspace(c); }))
+                throw std::runtime_error("Header key is not allowed to contain space");
             while (!value.empty() && value.front() == ' ')
                     value.erase(0, 1);
             std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c)
                 {
                     return std::tolower(c);
                 });
-
             req.headers[key] = value;
         }
-        }
+    }
     // check content length, then attach body
      if (auto it = req.headers.find("content-length"); it != req.headers.end())
     {

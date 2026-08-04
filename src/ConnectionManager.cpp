@@ -91,6 +91,12 @@ void ConnectionManager::onReadable(int fd)
     conn.last_active = std::time(nullptr);
     conn.read_buffer.append(buf, static_cast<size_t>(n));
 
+    if (conn.read_buffer.length() >= conn.settings->max_body_size + 300) // TODO expand with headersize instead of 300 when setting is available.
+    {
+        sendResponse(conn, HttpResponse::error(413));
+        return;
+    } 
+
     if (isRequestComplete(conn))
     {
         conn.state = PROCESSING;
@@ -160,7 +166,7 @@ void ConnectionManager::closeConnection(int fd)
     onClose(fd);
 }
 
-bool ConnectionManager::isRequestComplete(const Connection& conn)
+bool ConnectionManager::isRequestComplete(Connection& conn)
 {
     if (!conn.headers_complete)
     {
@@ -168,20 +174,20 @@ bool ConnectionManager::isRequestComplete(const Connection& conn)
         if (header_end == std::string::npos)
             return false;
 
-        const_cast<Connection&>(conn).headers_complete = true;
+        conn.headers_complete = true;
 
         std::string header_part = conn.read_buffer.substr(0, header_end);
-        size_t pos = header_part.find("Content-Length: ");
+        size_t pos = header_part.find("content-length:");
         if (pos != std::string::npos)
         {
             pos += 16;
             size_t end = header_part.find("\r\n", pos);
             std::string len_str = header_part.substr(pos, end - pos);
-            const_cast<Connection&>(conn).content_length = std::stoul(len_str);
+            conn.content_length = std::stoul(len_str);
         }
         else
         {
-            const_cast<Connection&>(conn).content_length = 0;
+            conn.content_length = 0;
         }
     }
 
@@ -212,25 +218,25 @@ static const char* mimeType(const std::string& filename)
 
 // Picks the most specific (longest) location whose path is a full-segment
 // prefix of url_path - e.g. location "/upload" matches "/upload" and
-// "/upload/x", but NOT "/upload.txt" or "/uploadFoo" (that boundary check
-// was missing before: a plain string-prefix compare let "/upload.txt"
-// match the "/upload" location too, since "/upload" is textually a prefix
-// of it). Mirrors how nginx resolves prefix locations.
+// "/upload/x", but NOT "/upload.txt" or "/uploadFoo" 
+// Mirrors how nginx resolves prefix locations.
 static const LocationConfig* matchLocation(const std::string& url_path,
     const std::map<std::string, LocationConfig>& locations)
 {
     const LocationConfig* matched = nullptr;
     for (const auto& loc : locations)
     {
-        const std::string& p = loc.second.path;
-        if (url_path.compare(0, p.size(), p) != 0)
+        const std::string& consider = loc.second.path;
+        // do we have an exact match?
+        if (url_path.compare(0, consider.size(), consider) != 0)
             continue;
-        bool at_boundary = url_path.size() == p.size()
-            || (!p.empty() && p.back() == '/')
-            || url_path[p.size()] == '/';
+        //
+        bool at_boundary = url_path.size() == consider.size()
+            || (!consider.empty() && consider.back() == '/')
+            || url_path[consider.size()] == '/';
         if (!at_boundary)
             continue;
-        if (!matched || p.size() > matched->path.size())
+        if (!matched || consider.size() > matched->path.size())
             matched = &loc.second;
     }
     return matched;
@@ -322,6 +328,8 @@ void ConnectionManager::handleRequest(int fd)
             const std::string& url_path = req.getURL().str();
             const LocationConfig* matched = matchLocation(url_path, conn.settings->locations);
 
+            // TODO: add CGI handler when merged
+
             if (!matched || matched->upload_dir.empty())
             {
                 // No upload_dir configured for this location -> POST not supported here
@@ -329,7 +337,10 @@ void ConnectionManager::handleRequest(int fd)
                 return;
             }
 
+            size_t pos = url_path.find('?');
             std::string filename = url_path.substr(matched->path.size());
+            if (pos < url_path.size())
+                filename = url_path.substr(matched->path.size(), pos - matched->path.size()); // remove query
             while (!filename.empty() && filename.front() == '/')
                 filename.erase(0, 1);
             if (filename.empty())
