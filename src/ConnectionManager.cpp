@@ -210,6 +210,32 @@ static const char* mimeType(const std::string& filename)
     return "application/octet-stream";
 }
 
+// Picks the most specific (longest) location whose path is a full-segment
+// prefix of url_path - e.g. location "/upload" matches "/upload" and
+// "/upload/x", but NOT "/upload.txt" or "/uploadFoo" (that boundary check
+// was missing before: a plain string-prefix compare let "/upload.txt"
+// match the "/upload" location too, since "/upload" is textually a prefix
+// of it). Mirrors how nginx resolves prefix locations.
+static const LocationConfig* matchLocation(const std::string& url_path,
+    const std::map<std::string, LocationConfig>& locations)
+{
+    const LocationConfig* matched = nullptr;
+    for (const auto& loc : locations)
+    {
+        const std::string& p = loc.second.path;
+        if (url_path.compare(0, p.size(), p) != 0)
+            continue;
+        bool at_boundary = url_path.size() == p.size()
+            || (!p.empty() && p.back() == '/')
+            || url_path[p.size()] == '/';
+        if (!at_boundary)
+            continue;
+        if (!matched || p.size() > matched->path.size())
+            matched = &loc.second;
+    }
+    return matched;
+}
+
 void ConnectionManager::handleRequest(int fd)
 {
     auto it = m_connections.find(fd);
@@ -228,15 +254,9 @@ void ConnectionManager::handleRequest(int fd)
             std::string path;
             std::string url_path = req.getURL().str();
             const std::string* root = &conn.settings->root;
-            for (const auto& loc : conn.settings->locations)
-            {
-                if (url_path.compare(0, loc.second.path.size(), loc.second.path) == 0)
-                {
-                    if (loc.second.root.has_value())
-                        root = &loc.second.root.value();
-                    break;
-                }
-            }
+            const LocationConfig* matched = matchLocation(url_path, conn.settings->locations);
+            if (matched && matched->root.has_value())
+                root = &matched->root.value();
 
             if (url_path.back() == '/')
                 path = *root + url_path + conn.settings->index;
@@ -275,18 +295,12 @@ void ConnectionManager::handleRequest(int fd)
                 std::string defaultCt = conn.settings->missing_content_type_default;
 
                 const std::string& url_path = req.getURL().str();
-                for (const auto& loc : conn.settings->locations)
+                const LocationConfig* matched = matchLocation(url_path, conn.settings->locations);
+                if (matched && matched->missing_content_type_policy.has_value())
                 {
-                    if (url_path.compare(0, loc.second.path.size(), loc.second.path) == 0)
-                    {
-                        if (loc.second.missing_content_type_policy.has_value())
-                        {
-                            policy = loc.second.missing_content_type_policy.value();
-                            if (loc.second.missing_content_type_default.has_value())
-                                defaultCt = loc.second.missing_content_type_default.value();
-                        }
-                        break;
-                    }
+                    policy = matched->missing_content_type_policy.value();
+                    if (matched->missing_content_type_default.has_value())
+                        defaultCt = matched->missing_content_type_default.value();
                 }
 
                 switch (policy)
@@ -306,20 +320,7 @@ void ConnectionManager::handleRequest(int fd)
             }
 
             const std::string& url_path = req.getURL().str();
-            const LocationConfig* matched = nullptr;
-            for (const auto& loc : conn.settings->locations)
-            {
-                if (url_path.compare(0, loc.second.path.size(), loc.second.path) == 0)
-                {
-                    // NEW: keep the longest matching location path, not the first one found.
-                    // locations is a std::map, so iteration order is alphabetical ("/" sorts
-                    // before "/upload") - breaking on the first match would always pick "/"
-                    // since it is a prefix of every path, hiding more specific locations
-                    // like "/upload" that actually define an upload_dir.
-                    if (!matched || loc.second.path.size() > matched->path.size())
-                        matched = &loc.second;
-                }
-            }
+            const LocationConfig* matched = matchLocation(url_path, conn.settings->locations);
 
             if (!matched || matched->upload_dir.empty())
             {
@@ -361,15 +362,9 @@ void ConnectionManager::handleRequest(int fd)
             std::string path;
             const std::string& url_path = req.getURL().str();
             const std::string* root = &conn.settings->root;
-            for (const auto& loc : conn.settings->locations)
-            {
-                if (url_path.compare(0, loc.second.path.size(), loc.second.path) == 0)
-                {
-                    if (loc.second.root.has_value())
-                        root = &loc.second.root.value();
-                    break;
-                }
-            }
+            const LocationConfig* matched = matchLocation(url_path, conn.settings->locations);
+            if (matched && matched->root.has_value())
+                root = &matched->root.value();
 
             if (url_path == "/" || req.getBody().length() != 0)
             {
