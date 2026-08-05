@@ -1,5 +1,6 @@
 #include "../src/CGIHandler.hpp"
 #include "../src/WebserverSettings.hpp"
+#include "../src/PollHandler.hpp"
 #include <arpa/inet.h>
 #include <cstring>
 #include <iostream>
@@ -56,7 +57,15 @@ static CGIResult runCGI(const std::string& rawRequest, const std::string& script
 
     Connection conn(-1, addr, &settings);
 
-    CGIHandler handler(scriptPath, "/usr/bin/python3", req, conn);
+    CGIHandler handler(scriptPath, "/usr/bin/python3", req, conn, [&handler](){
+        std::cout << "CGI exit: " << handler.getExitStatus() << ", Message " << handler.getOutput() << std::endl;
+    });
+
+    PollHandler& poll = PollHandler::getInstance();
+    poll.setTimeout(50);
+    for (int i = 0; i < 100 && !handler.isDone(); ++i)
+        poll.checkFDs();
+    poll.setTimeout(3000);
 
     CGIResult r;
     r.status = handler.getExitStatus();

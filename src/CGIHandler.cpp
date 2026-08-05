@@ -9,6 +9,7 @@
 #include <cstdio>       // perror
 #include <cstdlib>      // getenv
 #include <cstring>      // strerror
+#include "PollHandler.hpp"
 
 /*
     SERVER and META Keys
@@ -157,24 +158,49 @@ void CGIHandler::spawnCGI(){
     // parent 
     close(stdin_pipe[0]);
     close(stdout_pipe[1]);
+    fcntl(stdin_pipe[1], F_SETFL, O_NONBLOCK);
+    fcntl(stdout_pipe[0], F_SETFL, O_NONBLOCK);
 
     const std::string& body = m_req.getBody();
-    size_t off = 0;
-    while (off < body.size())
-    {
-        ssize_t n = write(stdin_pipe[1], body.data() + off, body.size() - off);
-        if (n <= 0) break;
-        off += static_cast<size_t>(n);
-    }
-    close(stdin_pipe[1]); // close to start script
-    char buf[4096];
-    ssize_t n;
-    while ((n = read(stdout_pipe[0], buf, sizeof(buf))) > 0)
-        m_output.append(buf, static_cast<size_t>(n));
-    close(stdout_pipe[0]);
-
-    // DEBUG
-    waitpid(pid, &m_exitStatus, 0);
+    // do in on_readable
+    PollHandler& poll = PollHandler::getInstance();
+    poll.subscribe_read(stdout_pipe[0],
+        [stdout_pipe, stdin_pipe, this, pid](){ // readable
+            char buf[4096];
+            ssize_t n;
+            while ((n = read(stdout_pipe[0], buf, sizeof(buf))) > 0)
+                m_output.append(buf, static_cast<size_t>(n));
+            waitpid(pid, &m_exitStatus, 0); //debug
+            close(stdout_pipe[0]);
+            PollHandler::getInstance().unsubscribe(stdout_pipe[0]);
+            PollHandler::getInstance().unsubscribe(stdin_pipe[1]);
+            m_done = true;
+            m_onComplete();
+        },
+        [stdout_pipe, this, pid](){
+            char buf[4096];
+            ssize_t n;
+            if ((n = read(stdout_pipe[0], buf, sizeof(buf))) > 0)
+                m_output.append(buf, static_cast<size_t>(n));
+            // close(stdout_pipe[0]);          // will probably error out            
+        }
+    );
+    poll.subscribe_write(stdin_pipe[1],
+        [stdin_pipe](){ //close
+            PollHandler::getInstance().unsubscribe(stdin_pipe[1]);
+            // std::cout << "Closed in" << std::endl; // DEBUG
+        },
+        [body, stdin_pipe](){ // writeable
+            size_t off = 0;
+            while (off < body.size())
+            {
+                ssize_t n = write(stdin_pipe[1], body.data() + off, body.size() - off);
+                if (n <= 0) break;
+                off += static_cast<size_t>(n);
+            }
+            close(stdin_pipe[1]); // close to start script
+        }
+    );
 }
 
 CGIHandler::~CGIHandler(){}

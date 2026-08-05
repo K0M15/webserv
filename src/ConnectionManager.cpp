@@ -4,6 +4,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <cerrno>
 #include <cstring>
 #include <fstream>
@@ -48,7 +50,6 @@ void ConnectionManager::acceptConnection(int listen_fd, const WebserverSettings*
         std::cerr << "accept() error: " << std::strerror(errno) << std::endl;
         return;
     }
-
     if (fcntl(client_fd, F_SETFL, O_NONBLOCK) < 0)
     {
         ::close(client_fd);
@@ -318,6 +319,24 @@ void ConnectionManager::handleRequest(int fd)
     try
     {
         Request req = Request::fromString(conn.read_buffer);
+        const std::string keep_alive = req.getHeader("keep-alive");
+        if (!keep_alive.empty())
+        {
+            int optval = 1;
+            // 1. Enable keep-alives
+            setsockopt(conn.fd, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval));
+            // 2. Start probing after 60 seconds of idle time
+            int idle = 60;
+            setsockopt(conn.fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+
+            // 3. Send probes every 10 seconds after initial failure
+            int interval = 10;
+            setsockopt(conn.fd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
+
+            // 4. Drop the connection after 3 unacknowledged probes (total ~90s to detect death)
+            int count = 3;
+            setsockopt(conn.fd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
+        }
         std::cout << req.getMethod().c_str() << " " << req.getURL().str();
         const std::string& method = req.getMethod();
         const std::string& url_path = req.getURL().str();
