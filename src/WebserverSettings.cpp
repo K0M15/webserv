@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <algorithm>
 #include <cctype>
+#include <limits>
 
 
 
@@ -13,6 +14,7 @@ WebserverSettings WebserverSettings::getDefaultSettings()
     settings.index = "index.html";
     settings.root = "";
     settings.missing_content_type_policy = MissingContentTypePolicy::REJECT;
+    settings.max_cgi_output = DEFAULT_MAX_CGI_OUTPUT;
     return settings;
 }
 
@@ -34,6 +36,7 @@ struct ConfigTarget{
     std::string*                            cgi_extension;
     std::unordered_map<std::string, std::string>*
                                             cgi_ext_interpreter;
+    size_t*                                 max_cgi_output;
 };
 using Handler = std::function<void(const std::string& val, ConfigTarget target)>;
 /* val is the value after the key in config and what should be placed in the target*/
@@ -148,6 +151,11 @@ const std::unordered_map<std::string, Handler> entryParser = {
             throw std::runtime_error("'upload_dir' not allowed here");
         *t.upload_dir = val;
     )},
+    {"max_cgi_output", PUT_INTO(
+        *t.max_cgi_output = std::strtoul(val.c_str(), nullptr, 10);
+        if (*t.max_cgi_output == std::numeric_limits<unsigned long>::max())
+            *t.max_cgi_output = DEFAULT_MAX_CGI_OUTPUT;
+    )}
 };
 
 static void dispatch(const std::string& line, ConfigTarget target) {
@@ -206,6 +214,7 @@ WebserverSettings WebserverSettings::fromBlock(const std::string& block)
         .upload_dir = &settings.upload_dir,
         .cgi_extension = nullptr,
         .cgi_ext_interpreter = &settings.cgi_ext_interpreter,
+        .max_cgi_output = &settings.max_cgi_output,
     };
     LocationConfig current;
     bool in_loc = false;
@@ -241,6 +250,7 @@ WebserverSettings WebserverSettings::fromBlock(const std::string& block)
                 loc_target.upload_dir = &current.upload_dir;
                 loc_target.cgi_extension = &current.cgi_extension;
                 loc_target.cgi_ext_interpreter = &current.cgi_ext_interpreter;
+                loc_target.max_cgi_output = &current.max_cgi_output;
                 continue;
             }
         }

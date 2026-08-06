@@ -8,6 +8,10 @@
 #include <Request.hpp>
 // #include <BaseResponse.hpp>
 
+#ifndef DEFAULT_MAX_CGI_OUTPUT
+# define DEFAULT_MAX_CGI_OUTPUT 2e6
+#endif
+
 typedef enum {
     GET = 0,
     HEAD,
@@ -58,6 +62,7 @@ struct LocationConfig{
     std::string     redirect;
     std::string     upload_dir;
     std::string     cgi_extension;
+    size_t          max_cgi_output;
     MissingContentTypePolicy        missing_content_type_policy;
     std::string                     missing_content_type_default;
     std::unordered_map<unsigned int, std::string>
@@ -124,6 +129,7 @@ public:
     std::string                     upload_dir;
     std::unordered_map<std::string, std::string>
                                     cgi_ext_interpreter;
+    size_t                          max_cgi_output;
     static WebserverSettings fromBlock(const std::string& block);
 };
 
