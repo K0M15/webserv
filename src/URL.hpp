@@ -30,7 +30,18 @@ public:
             return "";
         return value.substr(separator + 1);
     }
-    const std::unordered_map<std::string, std::string> getQuery()
+    
+    const std::string getFileExt() const
+    {
+        std::string path = value.substr(0, value.find('?'));
+        size_t dot = path.rfind('.');
+        size_t slash = path.rfind('/');
+        if (dot == std::string::npos || (slash != std::string::npos && dot < slash))
+            return "";
+        return path.substr(dot);
+    }
+
+    const std::unordered_map<std::string, std::string> getQuery() const
     {
         std::unordered_map<std::string, std::string> result;
         std::string raw = getRawQuery();
