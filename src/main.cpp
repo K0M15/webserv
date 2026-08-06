@@ -1,16 +1,30 @@
 #include "Webserver.hpp"
 #include <iostream>
+#include <algorithm>
 
-int main(int argc, char** argv)
+/**
+ * Included Additional parsing could be done to ensure the file contents are also valid.
+ * However, this would be a bit overkill and is not required by the subject.
+ * @author dabierma 
+ */
+static void doesFileHaveCorrectExtension(char **argv)
+{
+    std::string argument = argv[1];
+
+    if (argument.size() < 5 || argument.substr(argument.size() - 5) != ".conf")
+        std::__throw_runtime_error("Argument must be a valid .conf file");
+}
+
+int main(int argc, char **argv)
 {
     if (argc != 2)
     {
-        std::cerr << "Usage: " << argv[0] << " <config_file>" << std::endl;
+        std::cerr << "Usage: ./webserv <config_file>" << std::endl;
         return 1;
     }
-
     try
     {
+        doesFileHaveCorrectExtension(argv);
         Webserver server(argv[1]);
         server.run();
     }
