@@ -12,7 +12,7 @@ static void doesFileHaveCorrectExtension(char **argv)
     std::string argument = argv[1];
 
     if (argument.size() < 5 || argument.substr(argument.size() - 5) != ".conf")
-        std::__throw_runtime_error("Argument must be a valid .conf file");
+        throw std::runtime_error("Argument must be a valid .conf file");
 }
 
 int main(int argc, char **argv)
