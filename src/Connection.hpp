@@ -3,9 +3,11 @@
 #include <arpa/inet.h>
 #include <string>
 #include <ctime>
+#include <memory>
 #include <Request.hpp>
 #include <WebserverSettings.hpp>
-#include "CGIHandler.hpp"
+
+class CGIHandler;
 
 enum ConnectionState {
     READING,
@@ -31,7 +33,6 @@ struct Connection {
     const WebserverSettings* settings;
 
     std::unique_ptr<CGIHandler> cgi_handler;
-
     Connection(int fd, const sockaddr_in& a, const WebserverSettings* s);
-    ~Connection();
+    ~Connection(){};
 };

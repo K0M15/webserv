@@ -1,6 +1,7 @@
 #include "ConnectionManager.hpp"
 #include "Request.hpp"
 #include "HttpResponse.hpp"
+#include "CGIHandler.hpp"
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -16,10 +17,6 @@ Connection::Connection(int fd, const sockaddr_in& a, const WebserverSettings* s)
       headers_complete(false), content_length(0),
       bytes_sent(0), keep_alive(false),
       last_active(std::time(nullptr)), settings(s)
-{
-}
-
-Connection::~Connection()
 {
 }
 
@@ -308,6 +305,15 @@ HttpResponse ConnectionManager::errorResponse(
     return HttpResponse::error(code);
 }
 
+static std::string resolvePath(const std::string& root,
+                                const std::string& url_path,
+                                const WebserverSettings* settings)
+{
+    return (url_path.back() == '/')
+         ? root + url_path + settings->index
+         : root + url_path;
+}
+
 void ConnectionManager::handleRequest(int fd)
 {
     auto it = m_connections.find(fd);
@@ -319,149 +325,7 @@ void ConnectionManager::handleRequest(int fd)
     try
     {
         Request req = Request::fromString(conn.read_buffer);
-        const std::string keep_alive = req.getHeader("keep-alive");
-        if (!keep_alive.empty())
-        {
-            int optval = 1;
-            // 1. Enable keep-alives
-            setsockopt(conn.fd, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval));
-            // 2. Start probing after 60 seconds of idle time
-            int idle = 60;
-            setsockopt(conn.fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
-
-            // 3. Send probes every 10 seconds after initial failure
-            int interval = 10;
-            setsockopt(conn.fd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
-
-            // 4. Drop the connection after 3 unacknowledged probes (total ~90s to detect death)
-            int count = 3;
-            setsockopt(conn.fd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
-        }
-        std::cout << req.getMethod().c_str() << " " << req.getURL().str();
-        const std::string& method = req.getMethod();
-        const std::string& url_path = req.getURL().str();
-        const LocationConfig* location = matchLocation(conn.settings->locations, url_path);
-
-        if (!isMethodAllowed(method, conn.settings, location))
-        {
-            const std::vector<Method>& allowed = (location && !location->methods.empty())
-                ? location->methods : conn.settings->methods;
-            HttpResponse resp = errorResponse(405, conn.settings, location);
-            resp.addHeader("Allow", buildAllowHeader(allowed));
-            resp.setKeepAlive(false);
-            sendResponse(conn, resp);
-            return;
-        }
-
-        if (method == "OPTIONS")
-        {
-            const std::vector<Method>& allowed = (location && !location->methods.empty())
-                ? location->methods : conn.settings->methods;
-
-            std::string allow = allowed.empty()
-                ? std::string("GET, HEAD, POST, OPTIONS, DELETE")
-                : buildAllowHeader(allowed);
-
-            HttpResponse resp;
-            resp.setStatus(204);
-            resp.addHeader("Allow", allow);
-            resp.addHeader("Content-Length", "0");
-            sendResponse(conn, resp);
-            return;
-        }
-
-        if (method == "GET" || method == "HEAD")
-        {
-            std::string root = (location && !location->root.empty())
-                ? location->root : conn.settings->root;
-            std::string path;
-
-            if (url_path.back() == '/')
-                path = root + url_path + conn.settings->index;
-            else
-                path = root + url_path;
-            std::ifstream file(path);
-            if (file.is_open())
-            {
-                std::stringstream ss;
-                ss << file.rdbuf();
-                file.close();
-
-                HttpResponse resp;
-                resp.setStatus(200);
-                if (method == "GET")
-                    resp.setBody(ss.str());
-                resp.addHeader("Content-Type", mimeType(path));
-                sendResponse(conn, resp);
-                return;
-            }
-
-            if (url_path.back() == '/' && conn.settings->dirindex)
-            {
-                sendResponse(conn, HttpResponse::dirindex(root + url_path, url_path));
-                return;
-            }
-            sendResponse(conn, errorResponse(404, conn.settings, location));
-        }
-        else if (method == "POST")
-        {
-            std::string contentType = req.getHeader("Content-Type");
-
-            if (contentType.empty() && !req.getBody().empty())
-            {
-                MissingContentTypePolicy policy = conn.settings->missing_content_type_policy;
-                std::string defaultCt = conn.settings->missing_content_type_default;
-
-                if (location && location->missing_content_type_policy != MissingContentTypePolicy::UNSET)
-                {
-                    policy = location->missing_content_type_policy;
-                    if (!location->missing_content_type_default.empty())
-                        defaultCt = location->missing_content_type_default;
-                }
-
-                switch (policy)
-                {
-                    case MissingContentTypePolicy::UNSET:
-                        break;
-                    case MissingContentTypePolicy::REJECT:
-                        sendResponse(conn, errorResponse(400, conn.settings, location));
-                        return;
-                    case MissingContentTypePolicy::DEFAULT:
-                        contentType = defaultCt;
-                        break;
-                }
-            }
-            sendResponse(conn, errorResponse(501, conn.settings, location));
-        }
-        else if (method == "DELETE")
-        {
-            std::string root = (location && !location->root.empty())
-                ? location->root : conn.settings->root;
-            std::string path;
-
-            if (url_path == "/" || req.getBody().length() != 0)
-            {
-                sendResponse(conn, errorResponse(403, conn.settings, location));
-                return;
-            }
-            else
-                path = root + url_path;
-
-            std::ifstream file(path);
-            if (!file.good())
-            {
-               sendResponse(conn, errorResponse(404, conn.settings, location));
-               return;
-            }
-            file.close();
-            if (!std::remove(path.c_str()))
-                sendResponse(conn, errorResponse(500, conn.settings, location));
-            sendResponse(conn, HttpResponse::error(204));
-        }
-        else
-        {
-            sendResponse(conn, errorResponse(501, conn.settings, location));
-        }
+        handleRequest(conn, req);
     }
     catch (const std::exception& e)
     {
@@ -470,6 +334,284 @@ void ConnectionManager::handleRequest(int fd)
         conn.keep_alive = false;
         sendResponse(conn, resp);
     }
+}
+
+void ConnectionManager::handleRequest(Connection& conn, const Request& req)
+{
+    const std::string keep_alive = req.getHeader("keep-alive");
+    if (!keep_alive.empty() && keep_alive == "true")
+    {
+        int optval = 1;
+        int idle = 60;
+        int interval = 10;
+        int count = 3;
+        setsockopt(conn.fd, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval));
+        setsockopt(conn.fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+        setsockopt(conn.fd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
+        setsockopt(conn.fd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
+    }
+
+    Method m = parseMethod(req.getMethod());
+    std::string url_path = req.getURL().str();
+    const LocationConfig* location = matchLocation(conn.settings->locations, url_path);
+    std::string root = (location && !location->root.empty())
+                     ? location->root : conn.settings->root;
+
+    if (!isMethodAllowed(req.getMethod(), conn.settings, location))
+    {
+        const std::vector<Method>& allowed = (location && !location->methods.empty())
+            ? location->methods : conn.settings->methods;
+        HttpResponse resp = errorResponse(405, conn.settings, location);
+        resp.addHeader("Allow", buildAllowHeader(allowed));
+        resp.setKeepAlive(false);
+        sendResponse(conn, resp);
+        return;
+    }
+
+    std::cout << method_name(m) << " " << url_path;
+    std::string ext = req.getURL().getFileExt();
+    auto& interpreters = (location && !location->cgi_ext_interpreter.empty())
+                       ? location->cgi_ext_interpreter
+                       : conn.settings->cgi_ext_interpreter;
+    auto interp = interpreters.find(ext);
+    if (interp != interpreters.end())
+    {
+        if (tryCGI(conn.fd, root + url_path, interp->second, req))
+        {
+            std::cout << " (CGI)" << std::endl;
+            return;
+        }
+    }
+    std::cout << std::endl;
+
+    try
+    {
+        switch (m)
+        {
+            case GET:
+                handleGet(conn, root, url_path, location); break;
+            case HEAD:
+                handleHead(conn, root, url_path, location); break;
+            case POST:
+                handlePost(conn, req, location); break;
+            case DELETE:
+                handleDelete(conn, root, url_path, location); break;
+            case OPTIONS:
+            {
+                const std::vector<Method>& allowed = (location && !location->methods.empty())
+                    ? location->methods : conn.settings->methods;
+                handleOptions(conn, allowed); break;
+            }
+            default:
+                sendResponse(conn, errorResponse(501, conn.settings, location));
+        }
+    }
+    catch(const std::exception& e)
+    {
+        std::cerr << e.what() << '\n';
+        sendResponse(conn, errorResponse(501, conn.settings, location));
+    }
+    
+}
+
+bool ConnectionManager::tryCGI(int fd, const std::string& filePath,
+                                const std::string& interpreter,
+                                const Request& req)
+{
+    auto it = m_connections.find(fd);
+    if (it == m_connections.end()) return false;
+    Connection& conn = it->second;
+
+    try
+    {
+        conn.cgi_handler = std::make_unique<CGIHandler>(
+            filePath, interpreter, req, conn,
+            [this, fd]() { onCGIComplete(fd); });
+        return true;
+    }
+    catch (const std::exception& e)
+    {
+        return false;
+    }
+}
+
+void ConnectionManager::onCGIComplete(int fd)
+{
+    auto it = m_connections.find(fd);
+    if (it == m_connections.end()) return;
+    Connection& conn = it->second;
+    if (!conn.cgi_handler) return;
+
+    int status = conn.cgi_handler->getExitStatus();
+    const std::string& raw = conn.cgi_handler->getOutput();
+
+    HttpResponse resp;
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+    {
+        resp = errorResponse(502, conn.settings, nullptr);
+    }
+    else
+    {
+        size_t header_end = raw.find("\r\n\r\n");
+        std::string body = (header_end != std::string::npos)
+                         ? raw.substr(header_end + 4) : raw;
+
+        resp.setStatus(200);
+        resp.setBody(body);
+
+        if (header_end != std::string::npos)
+        {
+            std::string cgi_headers = raw.substr(0, header_end);
+            size_t pos = 0;
+            while (pos < cgi_headers.size())
+            {
+                size_t nl = cgi_headers.find("\r\n", pos);
+                std::string line = (nl != std::string::npos)
+                                 ? cgi_headers.substr(pos, nl - pos)
+                                 : cgi_headers.substr(pos);
+                size_t colon = line.find(':');
+                if (colon != std::string::npos)
+                {
+                    std::string key = line.substr(0, colon);
+                    std::string val = line.substr(colon + 1);
+                    size_t first = val.find_first_not_of(' ');
+                    if (first != std::string::npos) val = val.substr(first);
+                    if (key != "Status" && !key.empty())
+                        resp.addHeader(key, val);
+                }
+                if (nl == std::string::npos) break;
+                pos = nl + 2;
+            }
+        }
+    }
+    sendResponse(conn, resp);
+}
+
+void ConnectionManager::handleGet(Connection& conn, const std::string& root,
+                                   const std::string& url_path,
+                                   const LocationConfig* location)
+{
+    std::string path = resolvePath(root, url_path, conn.settings);
+
+    std::ifstream file(path);
+    if (file.is_open())
+    {
+        std::stringstream ss;
+        ss << file.rdbuf();
+        file.close();
+
+        HttpResponse resp;
+        resp.setStatus(200);
+        resp.setBody(ss.str());
+        resp.addHeader("Content-Type", mimeType(path));
+        sendResponse(conn, resp);
+        return;
+    }
+
+    if (url_path.back() == '/' && conn.settings->dirindex)
+    {
+        sendResponse(conn, HttpResponse::dirindex(root + url_path, url_path));
+        return;
+    }
+    sendResponse(conn, errorResponse(404, conn.settings, location));
+}
+
+void ConnectionManager::handleHead(Connection& conn, const std::string& root,
+                                    const std::string& url_path,
+                                    const LocationConfig* location)
+{
+    std::string path = resolvePath(root, url_path, conn.settings);
+
+    std::ifstream file(path);
+    if (file.is_open())
+    {
+        file.close();
+        HttpResponse resp;
+        resp.setStatus(200);
+        resp.addHeader("Content-Type", mimeType(path));
+        sendResponse(conn, resp);
+        return;
+    }
+
+    if (url_path.back() == '/' && conn.settings->dirindex)
+    {
+        sendResponse(conn, HttpResponse::dirindex(root + url_path, url_path));
+        return;
+    }
+    sendResponse(conn, errorResponse(404, conn.settings, location));
+}
+
+void ConnectionManager::handlePost(Connection& conn, const Request& req,
+                                    const LocationConfig* location)
+{
+    std::string contentType = req.getHeader("Content-Type");
+
+    if (contentType.empty() && !req.getBody().empty())
+    {
+        MissingContentTypePolicy policy = conn.settings->missing_content_type_policy;
+        std::string defaultCt = conn.settings->missing_content_type_default;
+
+        if (location && location->missing_content_type_policy != MissingContentTypePolicy::UNSET)
+        {
+            policy = location->missing_content_type_policy;
+            if (!location->missing_content_type_default.empty())
+                defaultCt = location->missing_content_type_default;
+        }
+        switch (policy)
+        {
+            case MissingContentTypePolicy::UNSET:
+                break;
+            case MissingContentTypePolicy::REJECT:
+                sendResponse(conn, errorResponse(400, conn.settings, location));
+                return;
+            case MissingContentTypePolicy::DEFAULT:
+                contentType = defaultCt;
+                break;
+        }
+    }
+    sendResponse(conn, errorResponse(501, conn.settings, location));
+}
+
+void ConnectionManager::handleDelete(Connection& conn, const std::string& root,
+                                      const std::string& url_path,
+                                      const LocationConfig* location)
+{
+    if (url_path == "/")
+    {
+        sendResponse(conn, errorResponse(403, conn.settings, location));
+        return;
+    }
+
+    std::string path = root + url_path;
+
+    std::ifstream file(path);
+    if (!file.good())
+    {
+        sendResponse(conn, errorResponse(404, conn.settings, location));
+        return;
+    }
+    file.close();
+
+    if (std::remove(path.c_str()) != 0)
+    {
+        sendResponse(conn, errorResponse(500, conn.settings, location));
+        return;
+    }
+    sendResponse(conn, HttpResponse::error(204));
+}
+
+void ConnectionManager::handleOptions(Connection& conn,
+                                       const std::vector<Method>& allowed)
+{
+    std::string allow = allowed.empty()
+        ? std::string("GET, HEAD, POST, OPTIONS, DELETE")
+        : buildAllowHeader(allowed);
+
+    HttpResponse resp;
+    resp.setStatus(204);
+    resp.addHeader("Allow", allow);
+    resp.addHeader("Content-Length", "0");
+    sendResponse(conn, resp);
 }
 
 void ConnectionManager::sendResponse(Connection& conn, const HttpResponse& response)
