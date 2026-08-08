@@ -147,9 +147,9 @@ void CGIHandler::spawnCGI(){
         std::string dir = m_filePath.substr(0, m_filePath.find_last_of('/'));
         if (!dir.empty())
             chdir(dir.c_str());
-        char* argv[] = { const_cast<char*>("python3"),
+        char* argv[] = { const_cast<char*>(m_iPath.c_str()),
                          const_cast<char*>(absPath.c_str()), nullptr };
-        execvpe("python3", argv, m_env.data());
+        execvpe(m_iPath.c_str(), argv, m_env.data());
 
         std::perror("execvpe");
         _exit(127);
