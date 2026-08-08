@@ -1,4 +1,4 @@
-#include "../src/HttpStatusReason.hpp"
+#include "HttpStatusReason.hpp"
 #include <iostream>
 
 static int g_passed = 0;
