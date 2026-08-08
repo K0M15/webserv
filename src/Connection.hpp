@@ -5,6 +5,7 @@
 #include <ctime>
 #include <Request.hpp>
 #include <WebserverSettings.hpp>
+#include "CGIHandler.hpp"
 
 enum ConnectionState {
     READING,
@@ -28,6 +29,8 @@ struct Connection {
     bool                keep_alive;
     time_t              last_active;
     const WebserverSettings* settings;
+
+    std::unique_ptr<CGIHandler> cgi_handler;
 
     Connection(int fd, const sockaddr_in& a, const WebserverSettings* s);
     ~Connection();
