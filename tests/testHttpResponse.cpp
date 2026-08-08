@@ -1,4 +1,4 @@
-#include "../src/HttpResponse.hpp"
+#include "HttpResponse.hpp"
 #include <iostream>
 #include <string>
 

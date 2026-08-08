@@ -1,4 +1,4 @@
-#include "../src/WebserverSettings.hpp"
+#include "WebserverSettings.hpp"
 #include <iostream>
 
 static int g_passed = 0;

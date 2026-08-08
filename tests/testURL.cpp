@@ -1,4 +1,4 @@
-#include "../src/URL.hpp"
+#include "URL.hpp"
 #include <iostream>
 #include <sstream>
 #include <string>
