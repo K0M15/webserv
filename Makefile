@@ -1,7 +1,7 @@
 NAME = webserv
 
 CXX = c++
-CXXFLAGS = -Wall -Wextra -Werror -std=c++17 -Isrc -g
+CXXFLAGS = -Wall -Wextra -Werror -std=c++17 -Iinclude -g
 
 SRCS =  src/main.cpp \
 		src/PollHandler.cpp \
@@ -63,13 +63,13 @@ testRequest: createTestDIR
 	$(CXX) $(CXXFLAGS) src/Request.cpp tests/testRequest.cpp -o bin/testRequest
 
 testURL: createTestDIR
-	$(CXX) $(CXXFLAGS) -Isrc tests/testURL.cpp -o bin/testURL
+	$(CXX) $(CXXFLAGS) tests/testURL.cpp -o bin/testURL
 
 testPollHandler: createTestDIR
-	$(CXX) $(CXXFLAGS) -Isrc src/PollHandler.cpp tests/testPollHandler.cpp -o bin/testPollHandler
+	$(CXX) $(CXXFLAGS) src/PollHandler.cpp tests/testPollHandler.cpp -o bin/testPollHandler
 
 testConfigReader: createTestDIR
-	$(CXX) $(CXXFLAGS) -Isrc src/ConfigReader.cpp src/WebserverSettings.cpp tests/testConfigReader.cpp -o bin/testConfigReader
+	$(CXX) $(CXXFLAGS) src/ConfigReader.cpp src/WebserverSettings.cpp tests/testConfigReader.cpp -o bin/testConfigReader
 
 testHttpResponse: createTestDIR
 	$(CXX) $(CXXFLAGS) src/HttpResponse.cpp src/HttpStatusReason.cpp tests/testHttpResponse.cpp -o bin/testHttpResponse
