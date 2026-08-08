@@ -89,7 +89,7 @@ void ConnectionManager::onReadable(int fd)
     conn.last_active = std::time(nullptr);
     conn.read_buffer.append(buf, static_cast<size_t>(n));
 
-    if (conn.settings && conn.read_buffer.size() > conn.settings->max_body_size)
+    if (conn.settings && conn.read_buffer.size() > conn.settings->max_body_size + conn.settings->max_header_size)
     {
         HttpResponse resp = errorResponse(413, conn.settings, nullptr);
         resp.setKeepAlive(false);
@@ -166,7 +166,7 @@ void ConnectionManager::closeConnection(int fd)
     onClose(fd);
 }
 
-bool ConnectionManager::isRequestComplete(const Connection& conn)
+bool ConnectionManager::isRequestComplete(Connection& conn)
 {
     if (!conn.headers_complete)
     {
@@ -174,20 +174,20 @@ bool ConnectionManager::isRequestComplete(const Connection& conn)
         if (header_end == std::string::npos)
             return false;
 
-        const_cast<Connection&>(conn).headers_complete = true;
+        conn.headers_complete = true;
 
         std::string header_part = conn.read_buffer.substr(0, header_end);
-        size_t pos = header_part.find("Content-Length: ") ? header_part.find("Content-Length: ") : header_part.find("content-length: ") ? header_part.find("content-length: ") : std::string::npos ;
+        size_t pos = header_part.find("content-length:");
         if (pos != std::string::npos)
         {
             pos += 16;
             size_t end = header_part.find("\r\n", pos);
             std::string len_str = header_part.substr(pos, end - pos);
-            const_cast<Connection&>(conn).content_length = std::stoul(len_str);
+            conn.content_length = std::stoul(len_str);
         }
         else
         {
-            const_cast<Connection&>(conn).content_length = 0;
+            conn.content_length = 0;
         }
     }
 
@@ -214,20 +214,6 @@ static const char* mimeType(const std::string& filename)
     if (ext == ".xml")  return "application/xml";
     if (ext == ".svg")  return "image/svg+xml";
     return "application/octet-stream";
-}
-
-static const LocationConfig* matchLocation(
-    const std::unordered_map<std::string, LocationConfig>& locations,
-    const std::string& url_path)
-{
-    const LocationConfig* best = nullptr;
-    for (const auto& [path, loc] : locations) {
-        if (url_path.compare(0, path.size(), path) == 0) {
-            if (!best || path.size() > best->path.size())
-                best = &loc;
-        }
-    }
-    return best;
 }
 
 static Method parseMethod(const std::string& method) {
@@ -313,6 +299,31 @@ static std::string resolvePath(const std::string& root,
          ? root + url_path + settings->index
          : root + url_path;
 }
+// Picks the most specific (longest) location whose path is a full-segment
+// prefix of url_path - e.g. location "/upload" matches "/upload" and
+// "/upload/x", but NOT "/upload.txt" or "/uploadFoo" 
+// Mirrors how nginx resolves prefix locations.
+static const LocationConfig* matchLocation(const std::string& url_path,
+    const std::unordered_map<std::string, LocationConfig>& locations)
+{
+    const LocationConfig* matched = nullptr;
+    for (const auto& loc : locations)
+    {
+        const std::string& consider = loc.second.path;
+        // do we have an exact match?
+        if (url_path.compare(0, consider.size(), consider) != 0)
+            continue;
+        //
+        bool at_boundary = url_path.size() == consider.size()
+            || (!consider.empty() && consider.back() == '/')
+            || url_path[consider.size()] == '/';
+        if (!at_boundary)
+            continue;
+        if (!matched || consider.size() > matched->path.size())
+            matched = &loc.second;
+    }
+    return matched;
+}
 
 void ConnectionManager::handleRequest(int fd)
 {
@@ -353,7 +364,7 @@ void ConnectionManager::handleRequest(Connection& conn, const Request& req)
 
     Method m = parseMethod(req.getMethod());
     std::string url_path = req.getURL().str();
-    const LocationConfig* location = matchLocation(conn.settings->locations, url_path);
+    const LocationConfig* location = matchLocation(url_path, conn.settings->locations);
     std::string root = (location && !location->root.empty())
                      ? location->root : conn.settings->root;
 

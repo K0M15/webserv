@@ -34,5 +34,4 @@ struct Connection {
 
     std::unique_ptr<CGIHandler> cgi_handler;
     Connection(int fd, const sockaddr_in& a, const WebserverSettings* s);
-    ~Connection(){};
 };

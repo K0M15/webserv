@@ -22,7 +22,7 @@ private:
     std::map<int, Connection> m_connections;
 
     void    closeConnection(int fd);
-    bool    isRequestComplete(const Connection& conn);
+    bool    isRequestComplete(Connection& conn);
 
     void    handleRequest(int fd);
     void    handleRequest(Connection& conn, const Request& req);

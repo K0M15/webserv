@@ -1,6 +1,8 @@
 #pragma once
 
 #include <unordered_map>
+#include <map>
+#include <charconv>
 #include <string>
 #include <ostream>
 #include <utility>
@@ -10,6 +12,14 @@
 
 #ifndef DEFAULT_MAX_CGI_OUTPUT
 # define DEFAULT_MAX_CGI_OUTPUT 2e6
+#endif
+
+#ifndef DEFAULT_MAX_BODY_SIZE
+# define DEFAULT_MAX_BODY_SIZE 1e6
+#endif
+
+#ifndef DEFAULT_MAX_HEADER_SIZE
+# define DEFAULT_MAX_HEADER_SIZE 1e6
 #endif
 
 typedef enum {
@@ -123,8 +133,8 @@ public:
     MissingContentTypePolicy        missing_content_type_policy;
     std::string                     missing_content_type_default;
     std::unordered_map<std::string, LocationConfig> locations;
-    unsigned long                   max_header_size;
-    unsigned long                   max_body_size;
+    size_t                          max_header_size;
+    size_t                          max_body_size;
     std::string                     redirect;
     std::string                     upload_dir;
     std::unordered_map<std::string, std::string>
@@ -150,6 +160,7 @@ inline std::ostream& operator<<(std::ostream& os, const WebserverSettings& ws) {
     os << "  root:          " << ws.root << "\n";
     os << "  index:         " << ws.index << "\n";
     os << "  autoindex:     " << (ws.dirindex ? "on" : "off") << "\n";
+    os << "  max_body_size: " << ws.max_body_size << " bytes\n";
     os << "  missing_content_type: ";
     switch (ws.missing_content_type_policy) {
         case MissingContentTypePolicy::UNSET:  os << "unset"; break;

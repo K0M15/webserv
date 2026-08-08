@@ -1,6 +1,6 @@
-#include "../src/CGIHandler.hpp"
-#include "../src/WebserverSettings.hpp"
-#include "../src/PollHandler.hpp"
+#include "CGIHandler.hpp"
+#include "WebserverSettings.hpp"
+#include "PollHandler.hpp"
 #include <arpa/inet.h>
 #include <cstring>
 #include <iostream>
