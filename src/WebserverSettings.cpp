@@ -5,7 +5,16 @@
 #include <cctype>
 #include <limits>
 
-
+static std::string valueAfter(const std::string& line, const std::string& keyword)
+{
+    size_t pos = keyword.size();
+    while (pos < line.size() && (line[pos] == ' ' || line[pos] == '\t'))
+        ++pos;
+    std::string val = line.substr(pos);
+    if (!val.empty() && val.back() == ';')
+        val.pop_back();
+    return val;
+}
 
 WebserverSettings WebserverSettings::getDefaultSettings()
 {
@@ -15,6 +24,8 @@ WebserverSettings WebserverSettings::getDefaultSettings()
     settings.root = "";
     settings.missing_content_type_policy = MissingContentTypePolicy::REJECT;
     settings.max_cgi_output = DEFAULT_MAX_CGI_OUTPUT;
+    settings.max_body_size = DEFAULT_MAX_BODY_SIZE;
+    settings.max_header_size = DEFAULT_MAX_HEADER_SIZE;
     return settings;
 }
 
@@ -50,7 +61,7 @@ const std::unordered_map<std::string, Handler> entryParser = {
             *t.mct_policy = MissingContentTypePolicy::REJECT;
         } else if (val.compare(0, 7, "default") == 0){
             *t.mct_policy = MissingContentTypePolicy::DEFAULT;
-            std::string def = val.substr(8);
+            std::string def = valueAfter(val, "default");
             if (def.empty()) throw std::runtime_error("missing_content_type default requires a media type");
             *t.mct_default = def;                
         } else {
@@ -163,13 +174,7 @@ static void dispatch(const std::string& line, ConfigTarget target) {
     std::string keyword = line.substr(0, space);
     for (auto& c : keyword) c = std::tolower(c);
 
-    std::string value;
-    if (space != std::string::npos) {
-        value = line.substr(space + 1);
-        if (!value.empty() && value.back() == ';')
-            value.pop_back();
-    }
-
+    std::string value = valueAfter(line, keyword);
     auto it = entryParser.find(keyword);
     if (it != entryParser.end())
         it->second(value, target);
