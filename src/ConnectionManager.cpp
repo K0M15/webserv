@@ -13,11 +13,13 @@
 #include <fstream>
 #include <sstream>
 
-Connection::Connection(int fd, const sockaddr_in& a, const WebserverSettings* s)
-    : fd(fd), addr(a), state(READING),
-      headers_complete(false), content_length(0),
-      bytes_sent(0), keep_alive(false),
-      last_active(std::time(nullptr)), settings(s)
+Connection::Connection(int fd, const sockaddr_in& a, const std::vector<WebserverSettings*> candidates)
+    :   fd(fd), addr(a), state(READING),
+        headers_complete(false), content_length(0),
+        bytes_sent(0), keep_alive(false),
+        last_active(std::time(nullptr)), 
+        settings(candidates.empty() ? nullptr : candidates.front()),
+        candidates(candidates)
 {
 }
 
@@ -35,7 +37,7 @@ ConnectionManager::~ConnectionManager()
     m_connections.clear();
 }
 
-void ConnectionManager::acceptConnection(int listen_fd, const WebserverSettings* settings)
+void ConnectionManager::acceptConnection(int listen_fd, const std::vector<WebserverSettings*>& candidates)
 {
     sockaddr_in client_addr;
     socklen_t   len = sizeof(client_addr);
@@ -54,7 +56,7 @@ void ConnectionManager::acceptConnection(int listen_fd, const WebserverSettings*
         return;
     }
 
-    m_connections.emplace(client_fd, Connection(client_fd, client_addr, settings));
+    m_connections.emplace(client_fd, Connection(client_fd, client_addr, candidates));
 
     auto& poll = PollHandler::getInstance();
     poll.subscribe_read(client_fd,

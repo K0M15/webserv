@@ -102,11 +102,11 @@ int Webserver::createListenSocket(const ListenDirective& ld)
 
 void Webserver::setupListenSockets()
 {
-    for (auto& entry : m_config.data)
+    for (auto& entry : m_config.blocks)
     {
-        WebserverSettings& settings = entry.second;
+        WebserverSettings* settings = entry.get();
 
-        for (const auto& ld : settings.listen)
+        for (const auto& ld : settings->listen)
         {
             std::string key = (ld.address.empty() ? "0.0.0.0" : ld.address)
                             + ":" + std::to_string(ld.port);
@@ -125,7 +125,7 @@ void Webserver::setupListenSockets()
                 m_listen_fds[key] = fd;
             }
 
-            m_socket_settings[fd].push_back(&settings);
+            m_socket_settings[fd].push_back(settings);
         }
     }
 }
@@ -153,7 +153,7 @@ void Webserver::run()
                     return;
 
                 // Use the first settings block for this socket
-                m_conn_manager.acceptConnection(listen_fd, it->second[0]);
+                m_conn_manager.acceptConnection(listen_fd, it->second);
             }
         );
     }
