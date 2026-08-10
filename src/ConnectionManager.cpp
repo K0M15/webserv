@@ -12,6 +12,8 @@
 #include <cstring>
 #include <fstream>
 #include <sstream>
+#include <iterator>
+#include <cctype>
 
 Connection::Connection(int fd, const sockaddr_in& a, const std::vector<const WebserverSettings*> candidates)
     :   fd(fd), addr(a), state(READING),
@@ -694,14 +696,27 @@ bool ConnectionManager::tryRedirect(Connection& conn, const LocationConfig* loca
 
 const WebserverSettings* ConnectionManager::resolveSettings(Connection& conn, Request req) const
 {
-    const std::string target = req.getHeader("host");
+    std::string target = req.getHeader("host");
+    // remove port and colon
+    if (target.find(":") != std::string::npos)
+        target = target.substr(0, target.find(":"));
     if (target.empty())
         return conn.candidates[0]; // for now default
+    // lowercase target
+    std::transform(target.begin(), target.end(), target.begin(), [](char c){
+        return std::tolower(c);
+    });
     for (auto& it : conn.candidates)
     {
         for (auto& name : it->server_name)
-        if (target == name)
-            return it;
+        {
+            std::string lower;
+            lower.reserve(name.size());
+            std::transform(name.begin(), name.end(), std::back_inserter(lower),
+                           [](unsigned char c) { return std::tolower(c); });
+            if (target == lower)
+                return it;
+        }
     }
     return conn.candidates[0]; // for now default
 }
