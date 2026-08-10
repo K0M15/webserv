@@ -13,7 +13,7 @@
 #include <fstream>
 #include <sstream>
 
-Connection::Connection(int fd, const sockaddr_in& a, const std::vector<WebserverSettings*> candidates)
+Connection::Connection(int fd, const sockaddr_in& a, const std::vector<const WebserverSettings*> candidates)
     :   fd(fd), addr(a), state(READING),
         headers_complete(false), content_length(0),
         bytes_sent(0), keep_alive(false),
@@ -37,7 +37,7 @@ ConnectionManager::~ConnectionManager()
     m_connections.clear();
 }
 
-void ConnectionManager::acceptConnection(int listen_fd, const std::vector<WebserverSettings*>& candidates)
+void ConnectionManager::acceptConnection(int listen_fd, const std::vector<const WebserverSettings*>& candidates)
 {
     sockaddr_in client_addr;
     socklen_t   len = sizeof(client_addr);
@@ -370,7 +370,7 @@ void ConnectionManager::handleRequest(Connection& conn, const Request& req)
         setsockopt(conn.fd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
         setsockopt(conn.fd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
     }
-
+    conn.settings = resolveSettings(conn, req);
     Method m = parseMethod(req.getMethod());
     std::string url_path = req.getURL().str();
     std::string url_file = url_path.substr(0, url_path.find('?'));
@@ -691,6 +691,21 @@ bool ConnectionManager::tryRedirect(Connection& conn, const LocationConfig* loca
     sendResponse(conn, resp);
     return true;
 }
+
+const WebserverSettings* ConnectionManager::resolveSettings(Connection& conn, Request req) const
+{
+    const std::string target = req.getHeader("host");
+    if (target.empty())
+        return conn.candidates[0]; // for now default
+    for (auto& it : conn.candidates)
+    {
+        for (auto& name : it->server_name)
+        if (target == name)
+            return it;
+    }
+    return conn.candidates[0]; // for now default
+}
+
 
 void ConnectionManager::sendResponse(Connection& conn, const HttpResponse& response)
 {
