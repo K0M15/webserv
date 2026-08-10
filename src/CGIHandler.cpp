@@ -85,7 +85,11 @@ void CGIHandler::setEnv(){
     add("REQUEST_URI", m_req.getURL().str());
     add("QUERY_STRING", m_req.getURL().getRawQuery());
     add("SCRIPT_NAME", m_req.getURL().str().substr(0, m_req.getURL().str().find('?')));
-    add("SCRIPT_FILENAME", m_filePath);
+    char abs_buf[PATH_MAX];
+    std::string abs_path = m_filePath;
+    if (realpath(m_filePath.c_str(), abs_buf))
+        abs_path = abs_buf;
+    add("SCRIPT_FILENAME", abs_path);
     add("PATH_INFO", "");
     add("PATH_TRANSLATED", "");
 
