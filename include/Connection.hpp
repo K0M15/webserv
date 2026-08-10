@@ -31,7 +31,8 @@ struct Connection {
     bool                keep_alive;
     time_t              last_active;
     const WebserverSettings* settings;
+    std::vector<WebserverSettings*> candidates;
 
     std::unique_ptr<CGIHandler> cgi_handler;
-    Connection(int fd, const sockaddr_in& a, const WebserverSettings* s);
+    Connection(int fd, const sockaddr_in& a, const std::vector<WebserverSettings*> candidates);
 };
