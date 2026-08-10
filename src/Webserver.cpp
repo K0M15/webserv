@@ -152,7 +152,7 @@ void Webserver::run()
                 if (it == m_socket_settings.end() || it->second.empty())
                     return;
 
-                // Use the first settings block for this socket
+                // use all blocks for this fd
                 m_conn_manager.acceptConnection(listen_fd, it->second);
             }
         );

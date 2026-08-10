@@ -55,7 +55,10 @@ static CGIResult runCGI(const std::string& rawRequest, const std::string& script
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-    Connection conn(-1, addr, &settings);
+    std::vector<const WebserverSettings *> set;
+    set.push_back(&settings);
+
+    Connection conn(-1, addr, set);
 
     CGIHandler handler(scriptPath, "/usr/bin/python3", req, conn, [&handler](){
         std::cout << "CGI exit: " << handler.getExitStatus() << ", Message " << handler.getOutput() << std::endl;
