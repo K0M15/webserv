@@ -28,15 +28,15 @@ static void check(const char* name, bool condition, const char* fail_msg = "") {
 
 static void test_single_server() {
     ConfigReader reader("tests/sample_cfg/single_url.config");
-    check("single: 1 server block", reader.data.size() == 1u);
+    check("single: 1 server block", reader.blocks.size() == 1u);
 
-    const auto& ws = reader.data.at("");
-    check("single: 1 listen entry", ws.listen.size() == 1u);
-    check("single: listen port 4000", ws.listen[0].port == 4000);
-    check("single: root is /", ws.root == "/");
-    check("single: 1 location", ws.locations.size() == 1u);
-    check("single: location / exists", ws.locations.find("/") != ws.locations.end());
-    check("single: location / root", ws.locations.at("/").root == "/var/www/");
+    const auto& ws = reader.blocks[0].get();
+    check("single: 1 listen entry", ws->listen.size() == 1u);
+    check("single: listen port 4000", ws->listen[0].port == 4000);
+    check("single: root is /", ws->root == "/");
+    check("single: 1 location", ws->locations.size() == 1u);
+    check("single: location / exists", ws->locations.find("/") != ws->locations.end());
+    check("single: location / root", ws->locations.at("/").root == "/var/www/");
 }
 
 // --------------- multi-server config ---------------
@@ -45,21 +45,21 @@ static void test_multi_server() {
     ConfigReader reader("tests/sample_cfg/multi_server.config");
     // Current behavior: all server blocks with empty host key
     // are merged into a single entry (last one wins)
-    check("multi: 1 entry in map", reader.data.size() == 1u);
+    check("multi: 1 entry in map", reader.blocks.size() == 1u);
 
-    const auto& ws = reader.data.at("");
+    const auto& ws = reader.blocks[0].get();
     // Last server block's values win
-    check("multi: last server listen port 5000", ws.listen[0].port == 5000);
-    check("multi: last server root /var/www/site2", ws.root == "/var/www/site2");
-    check("multi: last server index index.php", ws.index == "index.php");
+    check("multi: last server listen port 5000", ws->listen[0].port == 5000);
+    check("multi: last server root /var/www/site2", ws->root == "/var/www/site2");
+    check("multi: last server index index.php", ws->index == "index.php");
     check("multi: last server missing_content_type DEFAULT",
-        ws.missing_content_type_policy == MissingContentTypePolicy::DEFAULT);
+        ws->missing_content_type_policy == MissingContentTypePolicy::DEFAULT);
     check("multi: last server missing_content_type default type",
-        ws.missing_content_type_default == "application/json");
+        ws->missing_content_type_default == "application/json");
 
     check("multi: location /upload exists",
-        ws.locations.find("/upload") != ws.locations.end());
-    const auto& upload = ws.locations.at("/upload");
+        ws->locations.find("/upload") != ws->locations.end());
+    const auto& upload = ws->locations.at("/upload");
     check("multi: location /upload upload_dir",
         upload.upload_dir == "/tmp/uploads");
     check("multi: location /upload missing_content_type DEFAULT",
@@ -67,7 +67,7 @@ static void test_multi_server() {
     check("multi: location /upload default type octet-stream",
         upload.missing_content_type_default == "application/octet-stream");
     check("multi: location / exists",
-        ws.locations.find("/") != ws.locations.end());
+        ws->locations.find("/") != ws->locations.end());
 }
 
 int main(int argc, char** argv) {

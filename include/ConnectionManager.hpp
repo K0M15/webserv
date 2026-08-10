@@ -10,7 +10,7 @@ public:
     ConnectionManager();
     ~ConnectionManager();
 
-    void acceptConnection(int listen_fd, const std::vector<WebserverSettings*>& settings);
+    void acceptConnection(int listen_fd, const std::vector<const WebserverSettings*>& candidates);
 
     void onReadable(int fd);
     void onWritable(int fd);
@@ -42,6 +42,8 @@ private:
     void    handleOptions(Connection& conn, const std::vector<Method>& allowed);
 
     bool    tryRedirect(Connection& conn, const LocationConfig* location);
+
+    const WebserverSettings* resolveSettings(Connection& conn, Request req) const;
 
     void    sendResponse(Connection& conn, const HttpResponse& response);
     HttpResponse errorResponse(unsigned int code,
