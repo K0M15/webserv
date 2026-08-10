@@ -10,7 +10,7 @@ public:
     ConnectionManager();
     ~ConnectionManager();
 
-    void acceptConnection(int listen_fd, const WebserverSettings* settings);
+    void acceptConnection(int listen_fd, const std::vector<WebserverSettings*>& settings);
 
     void onReadable(int fd);
     void onWritable(int fd);
