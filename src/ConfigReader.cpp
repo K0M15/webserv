@@ -19,37 +19,20 @@ ConfigReader::ConfigReader(const std::string& file)
     rawsettings.close();
 }
 
-ConfigReader::ConfigReader(const ConfigReader& other)
-{
-    data = other.data;
-}
-
-ConfigReader& ConfigReader::operator=(const ConfigReader& other)
-{
-    if (this != &other)
-    {
-        data = other.data; 
-    }
-    return *this;
-}
-
 ConfigReader::~ConfigReader()
 {
 }
 
-const WebserverSettings& ConfigReader::getSettings(const std::string& route){
-    std::map<std::string, WebserverSettings>::iterator
-        settings = data.find(route);
-    if (settings == data.end())
+const WebserverSettings* ConfigReader::getSettings(const std::string& route){
+    auto settings = vhosts.find(route);
+    if (settings == vhosts.end())
         throw HttpServerException("Route not found");
     return settings->second;
 }
 
-std::pair<std::string, WebserverSettings> ConfigReader::readConfigBlock(const std::string& block)
+std::unique_ptr<WebserverSettings> ConfigReader::readConfigBlock(const std::string& block)
 {
-    std::pair<std::string, WebserverSettings> res;
-    res.second = WebserverSettings::fromBlock(block);
-    return res;
+    return std::make_unique<WebserverSettings>(WebserverSettings::fromBlock(block));
 }
 
 static std::string trim(const std::string& str) {
@@ -89,7 +72,9 @@ int ConfigReader::readConfig(std::ifstream& rawsettings)
             try
             {
                 auto p = readConfigBlock(block);
-                data[p.first] = p.second;
+                for (auto& h : p->server_name)
+                    vhosts[h] = p.get();
+                blocks.push_back(std::move(p));
             }
             catch(const std::exception& e)
             {
