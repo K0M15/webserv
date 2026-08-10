@@ -153,7 +153,6 @@ void Webserver::run()
                     return;
 
                 // Use the first settings block for this socket
-                // TODO: match Host header later for virtual hosting
                 m_conn_manager.acceptConnection(listen_fd, it->second[0]);
             }
         );
