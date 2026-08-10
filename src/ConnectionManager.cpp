@@ -370,8 +370,11 @@ void ConnectionManager::handleRequest(Connection& conn, const Request& req)
     }
 
     Method m = parseMethod(req.getMethod());
-    std::string url_path = PathUtils::stripQuery(req.getURL().str());
-    const LocationConfig* location = matchLocation(url_path, conn.settings->locations);
+    std::string url_path = req.getURL().str();
+    std::string url_file = url_path.substr(0, url_path.find('?'));
+    const LocationConfig* location = matchLocation(url_file, conn.settings->locations);
+    if (tryRedirect(conn, location))
+        return;
     std::string root = (location && !location->root.empty())
                      ? location->root : conn.settings->root;
 
@@ -386,7 +389,7 @@ void ConnectionManager::handleRequest(Connection& conn, const Request& req)
         return;
     }
 
-    std::cout << method_name(m) << " " << url_path;
+    std::cout << method_name(m) << " " << url_file;
     std::string ext = req.getURL().getFileExt();
     auto& interpreters = (location && !location->cgi_ext_interpreter.empty())
                        ? location->cgi_ext_interpreter
@@ -394,13 +397,12 @@ void ConnectionManager::handleRequest(Connection& conn, const Request& req)
     auto interp = interpreters.find(ext);
     if (interp != interpreters.end())
     {
-        if (tryCGI(conn.fd, root + url_path, interp->second, req))
+        if (tryCGI(conn.fd, root + url_file, interp->second, req))
         {
-            std::cout << " (CGI)" << std::endl;
+            std::cout << " (CGI)";
             return;
         }
     }
-    std::cout << std::endl;
 
     try
     {
@@ -669,6 +671,23 @@ void ConnectionManager::handleOptions(Connection& conn,
     resp.addHeader("Allow", allow);
     resp.addHeader("Content-Length", "0");
     sendResponse(conn, resp);
+}
+
+bool ConnectionManager::tryRedirect(Connection& conn, const LocationConfig* location)
+{
+    const std::string* target = nullptr;
+    if (location && !location->redirect.empty())
+        target = &location->redirect;
+    else if (!conn.settings->redirect.empty())
+        target = &conn.settings->redirect;
+    if (!target) return false;
+
+    HttpResponse resp;
+    resp.setStatus(301);
+    resp.addHeader("Location", *target);
+    resp.setBody("<html><body>Moved Permanently: <a href=\"" + *target + "\">" + *target + "</a></body></html>");
+    sendResponse(conn, resp);
+    return true;
 }
 
 void ConnectionManager::sendResponse(Connection& conn, const HttpResponse& response)

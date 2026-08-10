@@ -41,6 +41,8 @@ private:
                          const std::string& url_path, const LocationConfig* location);
     void    handleOptions(Connection& conn, const std::vector<Method>& allowed);
 
+    bool    tryRedirect(Connection& conn, const LocationConfig* location);
+
     void    sendResponse(Connection& conn, const HttpResponse& response);
     HttpResponse errorResponse(unsigned int code,
                                const WebserverSettings* settings,
