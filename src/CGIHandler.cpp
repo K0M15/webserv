@@ -12,6 +12,7 @@
 #include <cstring>      // strerror
 #include <map>
 #include "PollHandler.hpp"
+#include "PathUtils.hpp"
 
 std::map<pid_t, std::function<void(int)>> g_pending;
 int g_sig_fd = -1;
@@ -130,7 +131,7 @@ void CGIHandler::setEnv(){
     add("REQUEST_METHOD", m_req.getMethod());
     add("REQUEST_URI", m_req.getURL().str());
     add("QUERY_STRING", m_req.getURL().getRawQuery());
-    add("SCRIPT_NAME", m_req.getURL().str().substr(0, m_req.getURL().str().find('?')));
+    add("SCRIPT_NAME", PathUtils::stripQuery(m_req.getURL().str()));
     add("SCRIPT_FILENAME", m_filePath);
     add("PATH_INFO", "");
     add("PATH_TRANSLATED", "");

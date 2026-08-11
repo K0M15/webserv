@@ -12,7 +12,7 @@ SRCS =  src/main.cpp \
 		src/Webserver.cpp \
 		src/ConfigReader.cpp \
 		src/WebserverSettings.cpp \
-		src/CGIHandler.cpp
+		src/CGIHandler.cpp \
 		src/PathUtils.cpp
 
 OBJ_DIR = obj
@@ -26,7 +26,7 @@ OBJS =  obj/main.o \
 		obj/Webserver.o \
 		obj/ConfigReader.o \
 		obj/WebserverSettings.o \
-		obj/CGIHandler.o
+		obj/CGIHandler.o \
 		obj/PathUtils.o
 
 GREEN = \033[1;32m
@@ -85,7 +85,7 @@ testWebserverSettings: createTestDIR
 	$(CXX) $(CXXFLAGS) src/WebserverSettings.cpp tests/testWebserverSettings.cpp -o bin/testWebserverSettings
 
 testCGI: createTestDIR
-	$(CXX) $(CXXFLAGS) src/CGIHandler.cpp src/Request.cpp src/ConnectionManager.cpp src/PollHandler.cpp src/HttpResponse.cpp src/HttpStatusReason.cpp tests/testCGI.cpp -o bin/testCGI
+	$(CXX) $(CXXFLAGS) src/CGIHandler.cpp src/Request.cpp src/ConnectionManager.cpp src/PathUtils.cpp src/PollHandler.cpp src/HttpResponse.cpp src/HttpStatusReason.cpp tests/testCGI.cpp -o bin/testCGI
 
 tests: testRequest testURL testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI
 	./bin/testRequest tests/sample_request.txt
