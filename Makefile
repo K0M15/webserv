@@ -11,7 +11,8 @@ SRCS =  src/main.cpp \
 		src/Request.cpp \
 		src/Webserver.cpp \
 		src/ConfigReader.cpp \
-		src/WebserverSettings.cpp
+		src/WebserverSettings.cpp \
+		src/PathUtils.cpp
 
 OBJ_DIR = obj
 
@@ -23,7 +24,8 @@ OBJS =  obj/main.o \
 		obj/Request.o \
 		obj/Webserver.o \
 		obj/ConfigReader.o \
-		obj/WebserverSettings.o
+		obj/WebserverSettings.o \
+		obj/PathUtils.o
 
 GREEN = \033[1;32m
 WHITE = \033[0m

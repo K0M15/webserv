@@ -1,6 +1,7 @@
 #include "ConnectionManager.hpp"
 #include "Request.hpp"
 #include "HttpResponse.hpp"
+#include "PathUtils.hpp"
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -337,19 +338,14 @@ void ConnectionManager::handleRequest(int fd)
                 return;
             }
 
-            size_t pos = url_path.find('?');
-            std::string filename = url_path.substr(matched->path.size());
-            if (pos < url_path.size())
-                filename = url_path.substr(matched->path.size(), pos - matched->path.size()); // remove query
-            while (!filename.empty() && filename.front() == '/')
-                filename.erase(0, 1);
-            if (filename.empty())
+            std::string dest_path;
+            PathUtils::ResolveResult r = PathUtils::resolveUnder(matched->upload_dir, url_path, matched->path, dest_path);
+            if (r != PathUtils::RESOLVE_OK)
             {
                 sendResponse(conn, HttpResponse::error(400));
                 return;
             }
 
-            std::string dest_path = matched->upload_dir + "/" + filename;
             std::ofstream outfile(dest_path, std::ios::binary | std::ios::trunc);
             if (!outfile.is_open())
             {

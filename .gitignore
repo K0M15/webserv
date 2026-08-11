@@ -3,4 +3,5 @@ webserv
 bin/
 en.subject.pdf
 POST-HANDLING.md
-www/uplaod/*
+www/upload/*
+docs/BUG_REPORT.md
