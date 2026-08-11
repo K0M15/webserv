@@ -369,8 +369,21 @@ void ConnectionManager::handleRequest(int fd)
             }
             outfile.write(req.getBody().data(),
                           static_cast<std::streamsize>(req.getBody().size()));
+            if (!outfile.good())
+            {
+                outfile.close();
+                std::remove(dest_path.c_str());
+                sendResponse(conn, HttpResponse::error(500));
+                return;
+            }
             outfile.close();
-
+            if (!outfile.good())
+            {
+                std::remove(dest_path.c_str());
+                sendResponse(conn, HttpResponse::error(500));
+                return;
+            }
+            
             HttpResponse resp;
             resp.setStatus(201);
             resp.addHeader("Content-Type", "text/html");
