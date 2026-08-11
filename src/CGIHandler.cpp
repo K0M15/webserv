@@ -1,15 +1,61 @@
-#define _GNU_SOURCE 1   // execvpe is a GNU extension; harmless if already defined
 #include "CGIHandler.hpp"
 
 #include <unistd.h>     // fork, execvpe, dup2, pipe2, chdir, _exit
 #include <fcntl.h>      // O_CLOEXEC, F_SETFD, FD_CLOEXEC
 #include <sys/wait.h>   // waitpid
+#include <sys/signalfd.h> // signalfd
 #include <sys/socket.h> // inet_ntoa needs arpa/inet.h; Connection.hpp pulls it in
+#include <signal.h>     // sigemptyset, sigaddset, sigprocmask
 #include <limits.h>     // PATH_MAX
 #include <cstdio>       // perror
 #include <cstdlib>      // getenv
 #include <cstring>      // strerror
+#include <map>
 #include "PollHandler.hpp"
+
+std::map<pid_t, std::function<void(int)>> g_pending;
+int g_sig_fd = -1;
+
+void setupSignalfd()
+{
+    if (g_sig_fd >= 0)
+        return;
+
+    // Block SIGCHLD from normal handling so it is queued for the signalfd
+    // instead of interrupting poll() or invoking a signal handler.
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &mask, nullptr);
+
+    g_sig_fd = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
+    if (g_sig_fd < 0)
+        throw std::runtime_error("CGI Handler: signalfd() failed");
+
+    PollHandler::getInstance().subscribe_read(g_sig_fd,
+        []() {},
+        []() {
+            // Consume the notification (may represent several children).
+            struct signalfd_siginfo info;
+            if (read(g_sig_fd, &info, sizeof(info)) != sizeof(info))
+                return;
+
+            // Reap every child that exited since the last poll.
+            int status;
+            pid_t pid;
+            while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
+            {
+                auto it = g_pending.find(pid);
+                if (it != g_pending.end())
+                {
+                    auto cb = it->second;
+                    g_pending.erase(it);
+                    cb(status);
+                }
+            }
+        }
+    );
+}
 
 /*
     SERVER and META Keys
@@ -128,7 +174,9 @@ void CGIHandler::spawnCGI(){
 
     pid_t pid = fork();
     if (pid < 0)
-        return;
+        throw std::runtime_error("CGI Handler: Fork not successful");
+    setupSignalfd();
+    
 
     if (pid == 0)
     {
@@ -149,9 +197,9 @@ void CGIHandler::spawnCGI(){
             chdir(dir.c_str());
         char* argv[] = { const_cast<char*>(m_iPath.c_str()),
                          const_cast<char*>(absPath.c_str()), nullptr };
-        execvpe(m_iPath.c_str(), argv, m_env.data());
+        execve(m_iPath.c_str(), argv, m_env.data());
 
-        std::perror("execvpe");
+        std::cerr << ("CGI Handler child: Failed exec of interpreter");
         _exit(127);
     }
 
@@ -161,34 +209,47 @@ void CGIHandler::spawnCGI(){
     fcntl(stdin_pipe[1], F_SETFL, O_NONBLOCK);
     fcntl(stdout_pipe[0], F_SETFL, O_NONBLOCK);
 
+    m_pid = pid;
+
+    // Setup exit handler
+    g_pending[m_pid] = [this](int status){
+        m_exitStatus = status;
+        m_status_collected = true;
+        finish();
+    };
+
     const std::string& body = m_req.getBody();
-    // do in on_readable
     PollHandler& poll = PollHandler::getInstance();
-    poll.subscribe_read(stdout_pipe[0],
-        [stdout_pipe, stdin_pipe, this, pid](){ // readable
-            char buf[4096];
-            ssize_t n;
-            while ((n = read(stdout_pipe[0], buf, sizeof(buf))) > 0)
-                m_output.append(buf, static_cast<size_t>(n));
-            waitpid(pid, &m_exitStatus, 0); //debug
+
+
+    auto drain = [this, stdout_pipe](){ // readable && on_close
+        char buf[4096];
+        ssize_t n;
+        while ((n = read(stdout_pipe[0], buf, sizeof(buf))) > 0)
+            m_output.append(buf, static_cast<size_t>(n));
+
+        if (n == 0) // EOF: child closed stdout (or exited)
+        {
+            m_output_drained = true;
             close(stdout_pipe[0]);
             PollHandler::getInstance().unsubscribe(stdout_pipe[0]);
-            PollHandler::getInstance().unsubscribe(stdin_pipe[1]);
-            m_done = true;
-            m_onComplete();
-        },
-        [stdout_pipe, this, pid](){
-            char buf[4096];
-            ssize_t n;
-            if ((n = read(stdout_pipe[0], buf, sizeof(buf))) > 0)
-                m_output.append(buf, static_cast<size_t>(n));
-            // close(stdout_pipe[0]);          // will probably error out            
+
+            // Common case: the child already exited, reap it right now.
+            pid_t reaped = waitpid(m_pid, &m_exitStatus, WNOHANG);
+            if (reaped == m_pid)
+            {
+                g_pending.erase(m_pid);
+                m_status_collected = true;
+            }
+            finish();
         }
-    );
+    };
+
+    poll.subscribe_read(stdout_pipe[0], drain, drain);
+
     poll.subscribe_write(stdin_pipe[1],
-        [stdin_pipe](){ //close
+        [stdin_pipe](){ // close
             PollHandler::getInstance().unsubscribe(stdin_pipe[1]);
-            // std::cout << "Closed in" << std::endl; // DEBUG
         },
         [body, stdin_pipe](){ // writeable
             size_t off = 0;
@@ -199,8 +260,21 @@ void CGIHandler::spawnCGI(){
                 off += static_cast<size_t>(n);
             }
             close(stdin_pipe[1]); // close to start script
+            PollHandler::getInstance().unsubscribe(stdin_pipe[1]);
         }
     );
 }
 
-CGIHandler::~CGIHandler(){}
+void CGIHandler::finish()
+{
+    if (m_done || !m_output_drained || !m_status_collected)
+        return;
+    m_done = true;
+    m_onComplete();
+}
+
+CGIHandler::~CGIHandler()
+{
+    if (m_pid > 0)
+        g_pending.erase(m_pid);
+}
