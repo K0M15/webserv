@@ -1,5 +1,6 @@
 
 #include "Request.hpp"
+#include "sys/socket.h"
 
 Request& Request::operator=(const Request& other) {
     if (this != &other) {

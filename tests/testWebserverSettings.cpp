@@ -140,8 +140,8 @@ static void test_location_with_root() {
 	);
 	check("location root: path exists", ws.locations.find("/images") != ws.locations.end());
 	const auto& loc = ws.locations.at("/images");
-	check("location root: has value", loc.root.has_value());
-	check("location root: is /var/images", loc.root.value() == "/var/images");
+	check("location root: has value", !loc.root.empty());
+	check("location root: is /var/images", loc.root == "/var/images");
 }
 
 static void test_location_multiline() {
@@ -154,7 +154,7 @@ static void test_location_multiline() {
 	);
 	check("location multiline: path exists", ws.locations.find("/api") != ws.locations.end());
 	const auto& loc = ws.locations.at("/api");
-	check("location multiline: root", loc.root.value() == "/var/api");
+	check("location multiline: root", loc.root == "/var/api");
 	check("location multiline: index", loc.index == "api.php");
 	check("location multiline: dirindex off", loc.dirindex == false);
 }
@@ -266,11 +266,9 @@ static void test_missing_content_type_in_location() {
         ws.missing_content_type_policy == MissingContentTypePolicy::REJECT);
     const auto& loc = ws.locations.at("/upload");
     check("mct location: policy is DEFAULT",
-        loc.missing_content_type_policy.has_value());
-    check("mct location: value is DEFAULT",
-        loc.missing_content_type_policy.value() == MissingContentTypePolicy::DEFAULT);
+        loc.missing_content_type_policy == MissingContentTypePolicy::DEFAULT);
     check("mct location: default type",
-        loc.missing_content_type_default.value_or("") == "application/octet-stream");
+        loc.missing_content_type_default == "application/octet-stream");
 }
 
 // --------------- combined ---------------
@@ -299,7 +297,7 @@ static void test_full_server_block() {
 	check("full block: locations count 2", ws.locations.size() == 2);
 	check("full block: location / exists", ws.locations.find("/") != ws.locations.end());
 	check("full block: location /api exists", ws.locations.find("/api") != ws.locations.end());
-	check("full block: location / root override", ws.locations.at("/").root.value() == "/var/www/html");
+	check("full block: location / root override", ws.locations.at("/").root == "/var/www/html");
 	check("full block: location /api cgi", ws.locations.at("/api").cgi_extension == ".php");
 }
 

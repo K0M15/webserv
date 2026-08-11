@@ -12,6 +12,7 @@ SRCS =  src/main.cpp \
 		src/Webserver.cpp \
 		src/ConfigReader.cpp \
 		src/WebserverSettings.cpp \
+		src/CGIHandler.cpp \
 		src/PathUtils.cpp
 
 OBJ_DIR = obj
@@ -25,6 +26,7 @@ OBJS =  obj/main.o \
 		obj/Webserver.o \
 		obj/ConfigReader.o \
 		obj/WebserverSettings.o \
+		obj/CGIHandler.o \
 		obj/PathUtils.o
 
 GREEN = \033[1;32m
@@ -82,7 +84,10 @@ testHttpStatusReason: createTestDIR
 testWebserverSettings: createTestDIR
 	$(CXX) $(CXXFLAGS) src/WebserverSettings.cpp tests/testWebserverSettings.cpp -o bin/testWebserverSettings
 
-tests: testRequest testURL testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings
+testCGI: createTestDIR
+	$(CXX) $(CXXFLAGS) src/CGIHandler.cpp src/Request.cpp src/ConnectionManager.cpp src/PathUtils.cpp src/PollHandler.cpp src/HttpResponse.cpp src/HttpStatusReason.cpp tests/testCGI.cpp -o bin/testCGI
+
+tests: testRequest testURL testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI
 	./bin/testRequest tests/sample_request.txt
 	./bin/testURL
 	./bin/testPollHandler
@@ -90,7 +95,8 @@ tests: testRequest testURL testPollHandler testConfigReader testHttpResponse tes
 	./bin/testHttpResponse
 	./bin/testHttpStatusReason
 	./bin/testWebserverSettings
+	./bin/testCGI
 
 re: fclean all
 
-.PHONY: all clean fclean re testRequest testURL testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings tests
+.PHONY: all clean fclean re testRequest testURL testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI tests

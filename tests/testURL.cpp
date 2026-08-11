@@ -246,6 +246,22 @@ static void test_copy_and_assign() {
     URL assigned("/assigned");
     assigned = original;
     check("copy assignment", assigned.str() == "/original");
+
+}
+
+static void test_getFileExt() {
+    URL url("/test.py");
+    auto ext_found = url.getFileExt();
+    check("Ext: found", ext_found.compare(".py") == 0, "expected .py");
+
+    URL hidden("/.hidden");
+    auto ext_hidden = url.getFileExt();
+    check("Ext: hidden", ext_hidden.empty() == 0, "hidden was not empty");
+
+    URL query("/test.py?something");
+    auto ext_query = url.getFileExt();
+    check("Ext: Query strings", ext_query.compare(ext_found) == 0, "extension does not match");
+
 }
 
 int main() {
@@ -291,6 +307,10 @@ int main() {
 
     std::cout << "Stream Extraction:" << std::endl;
     test_stream_extraction();
+    std::cout << std::endl;
+
+    std::cout << "Extension Extraction:" << std::endl;
+    test_getFileExt();
 
     std::cout << "\n----------------------------------------" << std::endl;
     std::cout << "Results: " << g_passed << " passed, " << g_failed << " failed, "
