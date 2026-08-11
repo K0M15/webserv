@@ -296,9 +296,15 @@ static std::string resolvePath(const std::string& root,
                                 const std::string& url_path,
                                 const WebserverSettings* settings)
 {
-    return (url_path.back() == '/')
-         ? root + url_path + settings->index
-         : root + url_path;
+    if (url_path.empty())
+        return root + "/" + settings->index;
+    std::string path = url_path;
+    if (path.back() == '/')
+        path += settings->index; // /dir/ → /dir/index.html
+    std::string out;
+    if (PathUtils::resolveUnder(root, path, "", out) != PathUtils::RESOLVE_OK)
+        return ""; // unsafe segment → open fails → 404
+    return out;
 }
 // Picks the most specific (longest) location whose path is a full-segment
 // prefix of url_path - e.g. location "/upload" matches "/upload" and
@@ -364,7 +370,7 @@ void ConnectionManager::handleRequest(Connection& conn, const Request& req)
     }
 
     Method m = parseMethod(req.getMethod());
-    std::string url_path = req.getURL().str();
+    std::string url_path = PathUtils::stripQuery(req.getURL().str());
     const LocationConfig* location = matchLocation(url_path, conn.settings->locations);
     std::string root = (location && !location->root.empty())
                      ? location->root : conn.settings->root;
@@ -594,7 +600,12 @@ void ConnectionManager::handleDelete(Connection& conn, const std::string& root,
         return;
     }
 
-    std::string path = root + url_path;
+    std::string path;
+    if (PathUtils::resolveUnder(root, url_path, "", path) != PathUtils::RESOLVE_OK)
+    {
+        sendResponse(conn, errorResponse(403, conn.settings, location));
+        return;
+    }
 
     std::ifstream file(path);
     if (!file.good())
