@@ -1,6 +1,7 @@
 */**.o
 webserv
 bin/
+.vscode/
 en.subject.pdf
 POST-HANDLING.md
 www/upload/*

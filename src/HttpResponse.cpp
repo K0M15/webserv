@@ -1,5 +1,6 @@
 #include "HttpResponse.hpp"
 #include "HttpStatusReason.hpp"
+#include "StandardErrorPages.hpp"
 #include <sstream>
 #include <iostream>
 #include <iomanip>
@@ -90,8 +91,8 @@ HttpResponse HttpResponse::error(unsigned int code)
 {
     HttpResponse resp;
     resp.setStatus(code);
-    resp.setBody("<h1>" + std::to_string(code) + " " + HttpStatusReason::reason(code) + "</h1>");
-    resp.m_headers["Content-Type"] = "text/html";
+    resp.addHeader("Content-Type", "text/html");
+    resp.setBody(HtmlPages::construct_errorpage(code, HttpStatusReason::reason(code)));
     return resp;
 }
 

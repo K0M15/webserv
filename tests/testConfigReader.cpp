@@ -36,7 +36,7 @@ static void test_single_server() {
     check("single: root is /", ws.root == "/");
     check("single: 1 location", ws.locations.size() == 1u);
     check("single: location / exists", ws.locations.find("/") != ws.locations.end());
-    check("single: location / root", ws.locations.at("/").root.value_or("") == "/var/www/");
+    check("single: location / root", ws.locations.at("/").root == "/var/www/");
 }
 
 // --------------- multi-server config ---------------
@@ -62,12 +62,10 @@ static void test_multi_server() {
     const auto& upload = ws.locations.at("/upload");
     check("multi: location /upload upload_dir",
         upload.upload_dir == "/tmp/uploads");
-    check("multi: location /upload missing_content_type overridden",
-        upload.missing_content_type_policy.has_value());
     check("multi: location /upload missing_content_type DEFAULT",
-        upload.missing_content_type_policy.value() == MissingContentTypePolicy::DEFAULT);
+        upload.missing_content_type_policy == MissingContentTypePolicy::DEFAULT);
     check("multi: location /upload default type octet-stream",
-        upload.missing_content_type_default.value_or("") == "application/octet-stream");
+        upload.missing_content_type_default == "application/octet-stream");
     check("multi: location / exists",
         ws.locations.find("/") != ws.locations.end());
 }

@@ -89,12 +89,12 @@ int Webserver::createListenSocket(const ListenDirective& ld)
         return -1;
     }
 
-    if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0)
+    if (fcntl(fd, F_SETFL, O_NONBLOCK | O_CLOEXEC ) < 0)
     {
-        std::cerr << "fcntl(O_NONBLOCK) failed: " << std::strerror(errno) << std::endl;
+        std::cerr << "fcntl(O_NONBLOCK | O_CLOEXEC) failed: " << std::strerror(errno) << std::endl;
         ::close(fd);
         return -1;
-    }
+    }   
 
     std::cout << "Listening on " << ld.address << ":" << ld.port << std::endl;
     return fd;

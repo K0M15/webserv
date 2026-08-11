@@ -1,5 +1,6 @@
 #pragma once
 
+#include <unordered_map>
 #include <map>
 #include <charconv>
 #include <string>
@@ -8,6 +9,18 @@
 #include <optional>
 #include <Request.hpp>
 // #include <BaseResponse.hpp>
+
+#ifndef DEFAULT_MAX_CGI_OUTPUT
+# define DEFAULT_MAX_CGI_OUTPUT 2e6
+#endif
+
+#ifndef DEFAULT_MAX_BODY_SIZE
+# define DEFAULT_MAX_BODY_SIZE 1e6
+#endif
+
+#ifndef DEFAULT_MAX_HEADER_SIZE
+# define DEFAULT_MAX_HEADER_SIZE 1e6
+#endif
 
 typedef enum {
     GET = 0,
@@ -45,26 +58,32 @@ inline std::ostream& operator<<(std::ostream& os, const ListenDirective& ld) {
 }
 
 enum class MissingContentTypePolicy {
+    UNSET,
     REJECT,
     DEFAULT
 };
 
 struct LocationConfig{
     std::string     path;
-    std::optional<std::string> root;
+    std::string     root;
     std::vector<Method>     methods;
     std::string     index;
     bool            dirindex;
     std::string     redirect;
     std::string     upload_dir;
     std::string     cgi_extension;
-    std::optional<MissingContentTypePolicy> missing_content_type_policy;
-    std::optional<std::string>              missing_content_type_default;
+    size_t          max_cgi_output;
+    MissingContentTypePolicy        missing_content_type_policy;
+    std::string                     missing_content_type_default;
+    std::unordered_map<unsigned int, std::string>
+                                    error_page;
+    std::unordered_map<std::string, std::string>
+                                    cgi_ext_interpreter;
 };
 
 inline std::ostream& operator<<(std::ostream& os, const LocationConfig& loc) {
     os << "    location " << loc.path << " {\n";
-    if (loc.root)       os << "      root:         " << *loc.root << "\n";
+    if (!loc.root.empty())  os << "      root:         " << loc.root << "\n";
     if (!loc.methods.empty()) {
         os << "      methods:      ";
         for (size_t i = 0; i < loc.methods.size(); ++i) {
@@ -78,13 +97,14 @@ inline std::ostream& operator<<(std::ostream& os, const LocationConfig& loc) {
     if (!loc.redirect.empty())  os << "      redirect:     " << loc.redirect << "\n";
     if (!loc.upload_dir.empty())os << "      upload_dir:   " << loc.upload_dir << "\n";
     if (!loc.cgi_extension.empty()) os << "      cgi_ext:      " << loc.cgi_extension << "\n";
-    if (loc.missing_content_type_policy.has_value()) {
+    if (loc.missing_content_type_policy != MissingContentTypePolicy::UNSET) {
         os << "      missing_content_type: ";
-        switch (loc.missing_content_type_policy.value()) {
+        switch (loc.missing_content_type_policy) {
             case MissingContentTypePolicy::REJECT: os << "reject"; break;
             case MissingContentTypePolicy::DEFAULT:
-                os << "default " << loc.missing_content_type_default.value_or("");
+                os << "default " << loc.missing_content_type_default;
                 break;
+            default: break;
         }
         os << "\n";
     }
@@ -96,17 +116,30 @@ class WebserverSettings{
 private:
     static WebserverSettings getDefaultSettings();
 public:
-    WebserverSettings() = default;
+    WebserverSettings():
+        dirindex(false),
+        missing_content_type_policy(MissingContentTypePolicy::REJECT),
+        max_header_size(DEFAULT_MAX_HEADER_SIZE),
+        max_body_size(DEFAULT_MAX_BODY_SIZE) {}
     ~WebserverSettings() = default;
     std::vector<ListenDirective>    listen;
     std::vector<std::string>        server_name;
+    std::vector<Method>             methods;
     std::string                     root;
     std::string                     index;
+    std::unordered_map<unsigned int, std::string>
+                                    error_page;
     bool                            dirindex;
-    size_t                          max_body_size; // in Bytes
     MissingContentTypePolicy        missing_content_type_policy;
     std::string                     missing_content_type_default;
-    std::map<std::string, LocationConfig> locations;
+    std::unordered_map<std::string, LocationConfig> locations;
+    size_t                          max_header_size;
+    size_t                          max_body_size;
+    std::string                     redirect;
+    std::string                     upload_dir;
+    std::unordered_map<std::string, std::string>
+                                    cgi_ext_interpreter;
+    size_t                          max_cgi_output;
     static WebserverSettings fromBlock(const std::string& block);
 };
 
@@ -130,6 +163,7 @@ inline std::ostream& operator<<(std::ostream& os, const WebserverSettings& ws) {
     os << "  max_body_size: " << ws.max_body_size << " bytes\n";
     os << "  missing_content_type: ";
     switch (ws.missing_content_type_policy) {
+        case MissingContentTypePolicy::UNSET:  os << "unset"; break;
         case MissingContentTypePolicy::REJECT: os << "reject"; break;
         case MissingContentTypePolicy::DEFAULT:
             os << "default " << ws.missing_content_type_default;
