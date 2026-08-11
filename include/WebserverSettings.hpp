@@ -119,8 +119,8 @@ public:
     WebserverSettings():
         dirindex(false),
         missing_content_type_policy(MissingContentTypePolicy::REJECT),
-        max_header_size(8192),
-        max_body_size(100 * 1024 * 1024) {}
+        max_header_size(DEFAULT_MAX_HEADER_SIZE),
+        max_body_size(DEFAULT_MAX_BODY_SIZE) {}
     ~WebserverSettings() = default;
     std::vector<ListenDirective>    listen;
     std::vector<std::string>        server_name;
