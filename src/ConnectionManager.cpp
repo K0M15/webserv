@@ -100,7 +100,7 @@ void ConnectionManager::onReadable(int fd)
     if (isRequestComplete(conn))
     {
         conn.state = PROCESSING;
-        handleRequest(fd);
+        handleRequestFD(fd);
     }
 }
 
@@ -325,7 +325,7 @@ static const LocationConfig* matchLocation(const std::string& url_path,
     return matched;
 }
 
-void ConnectionManager::handleRequest(int fd)
+void ConnectionManager::handleRequestFD(int fd)
 {
     auto it = m_connections.find(fd);
     if (it == m_connections.end())
