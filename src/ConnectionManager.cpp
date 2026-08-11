@@ -1,6 +1,7 @@
 #include "ConnectionManager.hpp"
 #include "Request.hpp"
 #include "HttpResponse.hpp"
+#include "PathUtils.hpp"
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -230,7 +231,7 @@ static const LocationConfig* matchLocation(const std::string& url_path,
         // do we have an exact match?
         if (url_path.compare(0, consider.size(), consider) != 0)
             continue;
-        //
+
         bool at_boundary = url_path.size() == consider.size()
             || (!consider.empty() && consider.back() == '/')
             || url_path[consider.size()] == '/';
@@ -246,29 +247,51 @@ void ConnectionManager::handleRequest(int fd)
 {
     auto it = m_connections.find(fd);
     if (it == m_connections.end())
-        return; // maybe this should throw
+        return;
 
     Connection& conn = it->second;
 
     try
     {
-        Request req = Request::fromString(conn.read_buffer);
-        std::cout << req.getMethod().c_str() << " " << req.getURL().str();
-        const std::string& method = req.getMethod();
+        Request req = Request::fromString(conn.read_buffer, conn.settings->max_body_size);
+
+        const std::string& method   = req.getMethod();
+        const std::string  url_path = req.getURL().str();
+
+        std::cout << method << " " << url_path << std::endl;
+
+        const LocationConfig* matched = matchLocation(url_path, conn.settings->locations);
+
         if (method == "GET" || method == "HEAD")
         {
-            std::string path;
-            std::string url_path = req.getURL().str();
             const std::string* root = &conn.settings->root;
-            const LocationConfig* matched = matchLocation(url_path, conn.settings->locations);
             if (matched && matched->root.has_value())
                 root = &matched->root.value();
 
-            if (url_path.back() == '/')
-                path = *root + url_path + conn.settings->index;
-            else
-                path = *root + url_path;
-            std::ifstream file(path);
+            std::string clean = PathUtils::stripQuery(url_path);
+            bool wants_dir = !clean.empty() && clean.back() == '/';
+
+            std::string path;
+            PathUtils::ResolveResult r =
+                PathUtils::resolveUnder(*root, clean, "", path);
+
+            if (r == PathUtils::RESOLVE_BAD_PATH)
+            {
+                sendResponse(conn, HttpResponse::error(400));
+                return;
+            }
+            if (r == PathUtils::RESOLVE_EMPTY)
+                path = *root;
+
+            std::string dir_path = path;
+            if (wants_dir)
+            {
+                if (path.empty() || path[path.size() - 1] != '/')
+                    path += "/";
+                path += conn.settings->index;
+            }
+
+            std::ifstream file(path.c_str(), std::ios::binary);
             if (file.is_open())
             {
                 std::stringstream ss;
@@ -284,9 +307,9 @@ void ConnectionManager::handleRequest(int fd)
                 return;
             }
 
-            if (url_path.back() == '/' && conn.settings->dirindex)
+            if (wants_dir && conn.settings->dirindex)
             {
-                sendResponse(conn, HttpResponse::dirindex(*root + url_path, url_path));
+                sendResponse(conn, HttpResponse::dirindex(dir_path, clean));
                 return;
             }
             sendResponse(conn, HttpResponse::error(404));
@@ -300,8 +323,6 @@ void ConnectionManager::handleRequest(int fd)
                 MissingContentTypePolicy policy = conn.settings->missing_content_type_policy;
                 std::string defaultCt = conn.settings->missing_content_type_default;
 
-                const std::string& url_path = req.getURL().str();
-                const LocationConfig* matched = matchLocation(url_path, conn.settings->locations);
                 if (matched && matched->missing_content_type_policy.has_value())
                 {
                     policy = matched->missing_content_type_policy.value();
@@ -317,101 +338,112 @@ void ConnectionManager::handleRequest(int fd)
                     case MissingContentTypePolicy::DEFAULT:
                         contentType = defaultCt;
                         break;
+                    default:
+                        sendResponse(conn, HttpResponse::error(500));
+                        return;
                 }
             }
-            if (req.getBody().size() > conn.settings->max_body_size)
-            {
-                sendResponse(conn, HttpResponse::error(413));
-                return;
-            }
-
-            const std::string& url_path = req.getURL().str();
-            const LocationConfig* matched = matchLocation(url_path, conn.settings->locations);
 
             // TODO: add CGI handler when merged
 
             if (!matched || matched->upload_dir.empty())
             {
-                // No upload_dir configured for this location -> POST not supported here
                 sendResponse(conn, HttpResponse::error(403));
                 return;
             }
-
-            size_t pos = url_path.find('?');
-            std::string filename = url_path.substr(matched->path.size());
-            if (pos < url_path.size())
-                filename = url_path.substr(matched->path.size(), pos - matched->path.size()); // remove query
-            while (!filename.empty() && filename.front() == '/')
-                filename.erase(0, 1);
-            if (filename.empty())
+            std::string dest_path;
+            PathUtils::ResolveResult r = PathUtils::resolveUnder(
+                    matched->upload_dir, url_path, matched->path, dest_path);
+            if (r != PathUtils::RESOLVE_OK)
             {
                 sendResponse(conn, HttpResponse::error(400));
                 return;
             }
 
-            std::string dest_path = matched->upload_dir + "/" + filename;
-            std::ofstream outfile(dest_path, std::ios::binary | std::ios::trunc);
+            std::ofstream outfile(dest_path.c_str(),
+                                  std::ios::binary | std::ios::trunc);
             if (!outfile.is_open())
             {
                 sendResponse(conn, HttpResponse::error(500));
                 return;
             }
-            outfile.write(req.getBody().data(), static_cast<std::streamsize>(req.getBody().size()));
+            outfile.write(req.getBody().data(),
+                          static_cast<std::streamsize>(req.getBody().size()));
             outfile.close();
 
             HttpResponse resp;
             resp.setStatus(201);
             resp.addHeader("Content-Type", "text/html");
-            resp.addHeader("Location", url_path);
+            resp.addHeader("Location", PathUtils::stripQuery(url_path));
             resp.setBody("<h1>201 Created</h1>");
             sendResponse(conn, resp);
         }
         else if (method == "DELETE")
         {
-            // If file is inside root is checked by the URL parser regex
+            const std::string* base = &conn.settings->root;
+            std::string prefix;
 
-            std::string path;
-            const std::string& url_path = req.getURL().str();
-            const std::string* root = &conn.settings->root;
-            const LocationConfig* matched = matchLocation(url_path, conn.settings->locations);
-            if (matched && matched->root.has_value())
-                root = &matched->root.value();
-
-            if (url_path == "/" || req.getBody().length() != 0)
+            if (matched && !matched->upload_dir.empty())
             {
-                // not allowed to delete directorys or have a body
+                base = &matched->upload_dir;
+                prefix = matched->path;
+            }
+            else if (matched && matched->root.has_value())
+            {
+                base = &matched->root.value();
+            }
+
+            std::string clean = PathUtils::stripQuery(url_path);
+
+            if (clean == "/" || !req.getBody().empty())
+            {
                 sendResponse(conn, HttpResponse::error(403));
                 return;
             }
-            else
-                path = *root + url_path;
 
-            std::ifstream file(path);
-            // Check if target is file and exists
+            std::string path;
+            PathUtils::ResolveResult r =
+                PathUtils::resolveUnder(*base, clean, prefix, path);
+            if (r != PathUtils::RESOLVE_OK)
+            {
+                sendResponse(conn, HttpResponse::error(400));
+                return;
+            }
+
+            std::ifstream file(path.c_str(), std::ios::binary);
             if (!file.good())
             {
-                /*
-                    we could send 404 -> not found but that might be a security risk,
-                    however it is correct, since delete without auth is insecure
-                    in itself.
-                    OR  a 403 -> not allowed
-                */
-               sendResponse(conn, HttpResponse::error(404));
-               return;
+                sendResponse(conn, HttpResponse::error(404));
+                return;
             }
             file.close();
-            if (!std::remove(path.c_str()))
+
+            if (std::remove(path.c_str()) != 0)
+            {
                 sendResponse(conn, HttpResponse::error(500));
-            sendResponse(conn, HttpResponse::error(204));
-            // sendResponse(conn, HttpResponse::error(501));
+                return;
+            }
+
+            HttpResponse resp;
+            resp.setStatus(204);
+            sendResponse(conn, resp);
         }
         else
         {
             sendResponse(conn, HttpResponse::error(501));
         }
     }
+    catch (const PayloadTooLargeError& e)
+    {
+        std::cerr << "413: " << e.what() << std::endl;
+        HttpResponse resp = HttpResponse::error(413);
+        resp.setKeepAlive(false);
+        conn.keep_alive = false;
+        sendResponse(conn, resp);
+    }
     catch (const std::exception& e)
     {
+        std::cerr << "400: " << e.what() << std::endl;
         HttpResponse resp = HttpResponse::error(400);
         resp.setKeepAlive(false);
         conn.keep_alive = false;

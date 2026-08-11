@@ -5,6 +5,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <stdexcept> 
 #include "URL.hpp"
 
 
@@ -23,7 +24,7 @@ public:
     ~Request() = default;
     Request(const Request& other) = default;
     Request& operator=(const Request& other);
-    static Request fromString(const std::string& rawRequest);
+    static Request fromString(const std::string& rawRequest, size_t ax_body_size);
     const std::string& getMethod() const { return method; }
     const std::string& getBody() const { return body; }
     const std::string& getHeader(const std::string& key) const {
@@ -44,4 +45,11 @@ public:
     const URL& getURL() const { return url; }
     const std::string getVersion() const { return version; }
     const std::map<std::string, std::string>& getHeaders() const { return headers; }
+};
+
+class PayloadTooLargeError : public std::runtime_error
+{
+public:
+    explicit PayloadTooLargeError(const std::string& m)
+        : std::runtime_error(m) {}
 };
