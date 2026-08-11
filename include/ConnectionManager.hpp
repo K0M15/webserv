@@ -24,7 +24,7 @@ private:
     void    closeConnection(int fd);
     bool    isRequestComplete(Connection& conn);
 
-    void    handleRequest(int fd);
+    void    handleRequestFD(int fd);
     void    handleRequest(Connection& conn, const Request& req);
 
     bool    tryCGI(int fd, const std::string& filePath,

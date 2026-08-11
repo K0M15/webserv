@@ -2,6 +2,7 @@
 #include "Request.hpp"
 #include "HttpResponse.hpp"
 #include "CGIHandler.hpp"
+#include "PathUtils.hpp"
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -104,7 +105,7 @@ void ConnectionManager::onReadable(int fd)
     if (isRequestComplete(conn))
     {
         conn.state = PROCESSING;
-        handleRequest(fd);
+        handleRequestFD(fd);
     }
 }
 
@@ -299,9 +300,15 @@ static std::string resolvePath(const std::string& root,
                                 const std::string& url_path,
                                 const WebserverSettings* settings)
 {
-    return (url_path.back() == '/')
-         ? root + url_path + settings->index
-         : root + url_path;
+    if (url_path.empty())
+        return root + "/" + settings->index;
+    std::string path = url_path;
+    if (path.back() == '/')
+        path += settings->index; // /dir/ → /dir/index.html
+    std::string out;
+    if (PathUtils::resolveUnder(root, path, "", out) != PathUtils::RESOLVE_OK)
+        return ""; // unsafe segment → open fails → 404
+    return out;
 }
 // Picks the most specific (longest) location whose path is a full-segment
 // prefix of url_path - e.g. location "/upload" matches "/upload" and
@@ -329,7 +336,7 @@ static const LocationConfig* matchLocation(const std::string& url_path,
     return matched;
 }
 
-void ConnectionManager::handleRequest(int fd)
+void ConnectionManager::handleRequestFD(int fd)
 {
     auto it = m_connections.find(fd);
     if (it == m_connections.end())
@@ -367,8 +374,7 @@ void ConnectionManager::handleRequest(Connection& conn, const Request& req)
     }
     conn.settings = resolveSettings(conn, req);
     Method m = parseMethod(req.getMethod());
-    std::string url_path = req.getURL().str();
-    std::string url_file = url_path.substr(0, url_path.find('?'));
+    std::string url_path = PathUtils::stripQuery(req.getURL().str());
     const LocationConfig* location = matchLocation(url_path, conn.settings->locations);
     if (tryRedirect(conn, location))
         return;
@@ -600,7 +606,12 @@ void ConnectionManager::handleDelete(Connection& conn, const std::string& root,
         return;
     }
 
-    std::string path = root + url_path;
+    std::string path;
+    if (PathUtils::resolveUnder(root, url_path, "", path) != PathUtils::RESOLVE_OK)
+    {
+        sendResponse(conn, errorResponse(403, conn.settings, location));
+        return;
+    }
 
     std::ifstream file(path);
     if (!file.good())
