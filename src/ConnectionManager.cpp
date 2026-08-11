@@ -2,6 +2,7 @@
 #include "Request.hpp"
 #include "HttpResponse.hpp"
 #include "CGIHandler.hpp"
+#include "PathUtils.hpp"
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>

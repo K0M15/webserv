@@ -10,7 +10,7 @@ public:
     URL() : value() {}
     explicit URL(const std::string& s) : value(std::move(s)){
         // allow absolute URI, absolute path (origin-form), or asterisk (*)
-        const std::regex url_pattern(
+        const std::regex url_pattern( //static const for more performance ?
         R"(^(?!.*\/\.\.?\/)((https?|ftp)://[^\s/$.?#].[^\s]*|/[^\s]*|\*)$)",
         std::regex::icase);
         if (!std::regex_match(value, url_pattern))
