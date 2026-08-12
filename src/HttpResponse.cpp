@@ -73,7 +73,7 @@ std::string HttpResponse::toString() const
         oss << "Date: " << httpDate(time(nullptr)) << "\r\n";
 
     if (m_headers.find("Server") == m_headers.end())
-        oss << "Server: webserv/0.1\r\n";
+        oss << "Server: " << APPLICATION_VERSION << "\r\n";
 
     oss << "\r\n";
 

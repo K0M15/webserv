@@ -5,6 +5,18 @@
 #include <ctime>
 #include "HttpStatusReason.hpp"
 
+#ifndef APPLICATION_NAME
+# define APPLICATION_NAME "webserv"
+#endif
+
+#ifndef APPLICATION_VERSION
+# define APPLICATION_VERSION "0.1"
+#endif
+
+#ifndef APPLICATION_ID
+# define APPLICATION_ID APPLICATION_NAME "/" APPLICATION_VERSION
+#endif
+
 class HttpResponse {
 public:
     HttpResponse();
