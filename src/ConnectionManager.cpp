@@ -12,6 +12,7 @@
 #include <cstring>
 #include <fstream>
 #include <sstream>
+#include <sys/stat.h>
 
 Connection::Connection(int fd, const sockaddr_in& a, const WebserverSettings* s)
     : fd(fd), addr(a), state(READING),
@@ -522,6 +523,11 @@ void ConnectionManager::handleGet(Connection& conn, const std::string& root,
         resp.setStatus(200);
         resp.setBody(ss.str());
         resp.addHeader("Content-Type", mimeType(path));
+
+        struct stat st;
+        if (stat(path.c_str(), &st) == 0)
+            resp.addHeader("Last-Modified", HttpResponse::httpDate(st.st_mtime));
+
         sendResponse(conn, resp);
         return;
     }
@@ -547,6 +553,11 @@ void ConnectionManager::handleHead(Connection& conn, const std::string& root,
         HttpResponse resp;
         resp.setStatus(200);
         resp.addHeader("Content-Type", mimeType(path));
+
+        struct stat st;
+        if (stat(path.c_str(), &st) == 0)
+            resp.addHeader("Last-Modified", HttpResponse::httpDate(st.st_mtime));
+
         sendResponse(conn, resp);
         return;
     }
