@@ -139,6 +139,9 @@ void CGIHandler::setEnv(){
     std::string ct = m_req.getHeader("Content-Type");
     std::string cl = m_req.getHeader("Content-Length");
     if (!ct.empty()) add("CONTENT_TYPE", ct);
+    // count length to push to content length -> chunked
+    if (cl.empty() && m_req.isChunked())
+        cl = std::to_string(m_req.getBody().size());
     if (!cl.empty()) add("CONTENT_LENGTH", cl);
 
     add("REMOTE_ADDR", inet_ntoa(m_conn.addr.sin_addr));

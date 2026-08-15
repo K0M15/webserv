@@ -13,7 +13,8 @@ SRCS =  src/main.cpp \
 		src/ConfigReader.cpp \
 		src/WebserverSettings.cpp \
 		src/CGIHandler.cpp \
-		src/PathUtils.cpp
+		src/PathUtils.cpp \
+		src/Chunked.cpp
 
 OBJ_DIR = obj
 
@@ -27,7 +28,8 @@ OBJS =  obj/main.o \
 		obj/ConfigReader.o \
 		obj/WebserverSettings.o \
 		obj/CGIHandler.o \
-		obj/PathUtils.o
+		obj/PathUtils.o \
+		obj/Chunked.o
 
 GREEN = \033[1;32m
 WHITE = \033[0m
@@ -64,10 +66,13 @@ fclean: clean
 	@rm -f $(NAME)
 
 testRequest: createTestDIR
-	$(CXX) $(CXXFLAGS) src/Request.cpp tests/testRequest.cpp -o bin/testRequest
+	$(CXX) $(CXXFLAGS) src/Request.cpp src/Chunked.cpp tests/testRequest.cpp -o bin/testRequest
 
 testURL: createTestDIR
 	$(CXX) $(CXXFLAGS) tests/testURL.cpp -o bin/testURL
+
+testChunked: createTestDIR
+	$(CXX) $(CXXFLAGS) src/Request.cpp src/Chunked.cpp tests/testChunked.cpp -o bin/testChunked
 
 testPollHandler: createTestDIR
 	$(CXX) $(CXXFLAGS) src/PollHandler.cpp tests/testPollHandler.cpp -o bin/testPollHandler
@@ -85,11 +90,12 @@ testWebserverSettings: createTestDIR
 	$(CXX) $(CXXFLAGS) src/WebserverSettings.cpp tests/testWebserverSettings.cpp -o bin/testWebserverSettings
 
 testCGI: createTestDIR
-	$(CXX) $(CXXFLAGS) src/CGIHandler.cpp src/Request.cpp src/ConnectionManager.cpp src/PathUtils.cpp src/PollHandler.cpp src/HttpResponse.cpp src/HttpStatusReason.cpp tests/testCGI.cpp -o bin/testCGI
+	$(CXX) $(CXXFLAGS) src/CGIHandler.cpp src/Request.cpp src/Chunked.cpp src/ConnectionManager.cpp src/PathUtils.cpp src/PollHandler.cpp src/HttpResponse.cpp src/HttpStatusReason.cpp tests/testCGI.cpp -o bin/testCGI
 
-tests: testRequest testURL testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI
+tests: testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI
 	./bin/testRequest tests/sample_request.txt
 	./bin/testURL
+	./bin/testChunked
 	./bin/testPollHandler
 	./bin/testConfigReader
 	./bin/testHttpResponse
@@ -99,4 +105,4 @@ tests: testRequest testURL testPollHandler testConfigReader testHttpResponse tes
 
 re: fclean all
 
-.PHONY: all clean fclean re testRequest testURL testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI tests
+.PHONY: all clean fclean re testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI tests
