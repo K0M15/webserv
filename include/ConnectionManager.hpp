@@ -5,6 +5,14 @@
 #include "PollHandler.hpp"
 #include "HttpResponse.hpp"
 
+enum class RequestReadState {
+    INCOMPLETE,         // wait for more
+    COMPLETE,           // ready to be handled
+    BAD_REQUEST,        // malformed framing or request smuggling -> 400
+    PAYLOAD_TOO_LARGE,  // body exceeds max_body_size             -> 413
+    NOT_IMPLEMENTED     // unsupported transfer coding            -> 501
+};
+
 class ConnectionManager {
 public:
     ConnectionManager();
@@ -22,7 +30,7 @@ private:
     std::map<int, Connection> m_connections;
 
     void    closeConnection(int fd);
-    bool    isRequestComplete(Connection& conn);
+    RequestReadState isRequestComplete(Connection& conn);
 
     void    handleRequestFD(int fd);
     void    handleRequest(Connection& conn, const Request& req);
