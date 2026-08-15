@@ -106,6 +106,17 @@ static bool iequals(const std::string& a, const std::string& b){
     return true;
 }
 
+// Resolve the script to an absolute path. SCRIPT_FILENAME must not depend on
+// the child's working directory, because the child chdir()s into the script's
+// directory before exec (php-cgi resolves SCRIPT_FILENAME against its cwd).
+static std::string resolveScriptPath(const std::string& p)
+{
+    char buf[PATH_MAX];
+    if (realpath(p.c_str(), buf))
+        return buf;
+    return p;
+}
+
 void CGIHandler::setEnv(){
     m_env_strings.clear();
     m_env.clear();
@@ -132,7 +143,7 @@ void CGIHandler::setEnv(){
     add("REQUEST_URI", m_req.getURL().str());
     add("QUERY_STRING", m_req.getURL().getRawQuery());
     add("SCRIPT_NAME", PathUtils::stripQuery(m_req.getURL().str()));
-    add("SCRIPT_FILENAME", m_filePath);
+    add("SCRIPT_FILENAME", resolveScriptPath(m_filePath));
     add("PATH_INFO", "");
     add("PATH_TRANSLATED", "");
 
