@@ -125,7 +125,17 @@ void Webserver::setupListenSockets()
                 m_listen_fds[key] = fd;
             }
 
-            m_socket_settings[fd].push_back(settings);
+            auto& vec = m_socket_settings[fd];
+            if (ld.is_default)
+            {
+                if (!m_default_keys.insert(key).second)
+                    throw HttpServerException("duplicate default_server for " + key);
+                vec.insert(vec.begin(), settings);
+            }
+            else
+            {
+                vec.push_back(settings);
+            }
         }
     }
 }
