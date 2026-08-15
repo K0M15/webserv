@@ -3,6 +3,7 @@
 #include "HttpResponse.hpp"
 #include "CGIHandler.hpp"
 #include "PathUtils.hpp"
+#include "Chunked.hpp"
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -94,18 +95,38 @@ void ConnectionManager::onReadable(int fd)
     conn.last_active = std::time(nullptr);
     conn.read_buffer.append(buf, static_cast<size_t>(n));
 
-    if (conn.settings && conn.read_buffer.size() > conn.settings->max_body_size + conn.settings->max_header_size)
+    // Header flooding guard: while the header block is incomplete, bound how
+    // much we are willing to buffer. Body limits are enforced per-frame in
+    // isRequestComplete() so chunked framing overhead is not penalised.
+    if (conn.settings && !conn.headers_complete &&
+        conn.read_buffer.size() > conn.settings->max_header_size + 16384)
     {
-        HttpResponse resp = errorResponse(413, conn.settings, nullptr);
+        HttpResponse resp = errorResponse(400, conn.settings, nullptr);
         resp.setKeepAlive(false);
         sendResponse(conn, resp);
         return;
     }
 
-    if (isRequestComplete(conn))
+    RequestReadState state = isRequestComplete(conn);
+    switch (state)
     {
-        conn.state = PROCESSING;
-        handleRequestFD(fd);
+        case RequestReadState::INCOMPLETE:
+            return;
+        case RequestReadState::BAD_REQUEST:
+        case RequestReadState::PAYLOAD_TOO_LARGE:
+        case RequestReadState::NOT_IMPLEMENTED:
+        {
+            unsigned int code = (state == RequestReadState::PAYLOAD_TOO_LARGE) ? 413
+                              : (state == RequestReadState::NOT_IMPLEMENTED) ? 501 : 400;
+            HttpResponse resp = errorResponse(code, conn.settings, nullptr);
+            resp.setKeepAlive(false);
+            sendResponse(conn, resp);
+            return;
+        }
+        case RequestReadState::COMPLETE:
+            conn.state = PROCESSING;
+            handleRequestFD(fd);
+            return;
     }
 }
 
@@ -141,6 +162,8 @@ void ConnectionManager::onWritable(int fd)
             conn.bytes_sent = 0;
             conn.headers_complete = false;
             conn.content_length = 0;
+            conn.header_end = 0;
+            conn.chunked = false;
 
             auto& poll = PollHandler::getInstance();
             poll.subscribe_read(conn.fd,
@@ -171,33 +194,109 @@ void ConnectionManager::closeConnection(int fd)
     onClose(fd);
 }
 
-bool ConnectionManager::isRequestComplete(Connection& conn)
+static bool iequals(const std::string& a, const std::string& b)
+{
+    if (a.size() != b.size())
+        return false;
+    for (size_t i = 0; i < a.size(); ++i)
+    {
+        if (std::tolower(static_cast<unsigned char>(a[i])) !=
+            std::tolower(static_cast<unsigned char>(b[i])))
+            return false;
+    }
+    return true;
+}
+
+static std::string headerFieldValue(const std::string& lower_haystack, const std::string& name)
+{
+    std::string needle = "\r\n" + name + ":";
+    size_t pos = lower_haystack.find(needle);
+    if (pos == std::string::npos)
+        return "";
+    pos += needle.size();
+    size_t end = lower_haystack.find("\r\n", pos);
+    if (end == std::string::npos)
+        end = lower_haystack.size();
+    std::string value = lower_haystack.substr(pos, end - pos);
+    size_t b = value.find_first_not_of(" \t");
+    size_t e = value.find_last_not_of(" \t");
+    if (b == std::string::npos)
+        return "";
+    return value.substr(b, e - b + 1);
+}
+
+RequestReadState ConnectionManager::isRequestComplete(Connection& conn)
 {
     if (!conn.headers_complete)
     {
         size_t header_end = conn.read_buffer.find("\r\n\r\n");
         if (header_end == std::string::npos)
-            return false;
+            return RequestReadState::INCOMPLETE;
 
         conn.headers_complete = true;
+        conn.header_end = header_end;
 
         std::string header_part = conn.read_buffer.substr(0, header_end);
-        size_t pos = header_part.find("content-length:");
-        if (pos != std::string::npos)
+        std::transform(header_part.begin(), header_part.end(), header_part.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+
+        std::string cl_value = headerFieldValue(header_part, "content-length");
+        std::string te_value = headerFieldValue(header_part, "transfer-encoding");
+        if (!te_value.empty() && !cl_value.empty())
+            return RequestReadState::BAD_REQUEST; // request smuggling
+
+        if (!te_value.empty())
         {
-            pos += 16;
-            size_t end = header_part.find("\r\n", pos);
-            std::string len_str = header_part.substr(pos, end - pos);
-            conn.content_length = std::stoul(len_str);
+            if (!iequals(te_value, "chunked"))
+                return RequestReadState::NOT_IMPLEMENTED;
+            conn.chunked = true;
+            conn.content_length = 0;
         }
         else
         {
-            conn.content_length = 0;
+            conn.chunked = false;
+            if (!cl_value.empty())
+            {
+                unsigned long len{};
+                auto r = std::from_chars(cl_value.data(), cl_value.data() + cl_value.size(), len);
+                if (r.ec != std::errc() || r.ptr != cl_value.data() + cl_value.size())
+                    return RequestReadState::BAD_REQUEST; // malformed content-length
+                conn.content_length = static_cast<size_t>(len);
+            }
+            else
+                conn.content_length = 0;
         }
     }
 
-    size_t header_end = conn.read_buffer.find("\r\n\r\n") + 4;
-    return conn.read_buffer.size() >= header_end + conn.content_length;
+    size_t body_start = conn.header_end + 4;
+
+    if (conn.chunked)
+    {
+        size_t max = conn.settings ? conn.settings->max_body_size : 0;
+        std::string framed = conn.read_buffer.substr(body_start);
+        std::string decoded;
+        size_t consumed = 0;
+        switch (ChunkedBody::decode(framed, max, decoded, consumed))
+        {
+            case ChunkResult::INCOMPLETE:
+                return RequestReadState::INCOMPLETE;
+            case ChunkResult::MALFORMED:
+                return RequestReadState::BAD_REQUEST;
+            case ChunkResult::TOO_LARGE:
+                return RequestReadState::PAYLOAD_TOO_LARGE;
+            case ChunkResult::COMPLETE:
+                return conn.read_buffer.size() >= body_start + consumed
+                     ? RequestReadState::COMPLETE
+                     : RequestReadState::INCOMPLETE;
+        }
+    }
+
+    size_t max = conn.settings ? conn.settings->max_body_size : 0;
+    if (conn.content_length > max)
+        return RequestReadState::PAYLOAD_TOO_LARGE;
+    return conn.read_buffer.size() >= body_start + conn.content_length
+         ? RequestReadState::COMPLETE
+         : RequestReadState::INCOMPLETE;
 }
 
 static const char* mimeType(const std::string& filename)

@@ -16,8 +16,9 @@ private:
     std::string version;
     std::map<std::string, std::string> headers;
     std::string body;
+    bool chunked;
 
-    Request(){}
+    Request() : chunked(false) {}
     
 public:
     ~Request() = default;
@@ -26,6 +27,7 @@ public:
     static Request fromString(const std::string& rawRequest);
     const std::string& getMethod() const { return method; }
     const std::string& getBody() const { return body; }
+    bool isChunked() const { return chunked; }
     const std::string& getHeader(const std::string& key) const {
         // fromString() stores header keys lowercased, so lookups must
         // lowercase the key too, or e.g. getHeader("Content-Type") never matches.
