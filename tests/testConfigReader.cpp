@@ -43,31 +43,42 @@ static void test_single_server() {
 
 static void test_multi_server() {
     ConfigReader reader("tests/sample_cfg/multi_server.config");
-    // Current behavior: all server blocks with empty host key
-    // are merged into a single entry (last one wins)
-    check("multi: 1 entry in map", reader.data.size() == 1u);
+    // Each server block is keyed by its server_name.
+    check("multi: 2 server blocks", reader.data.size() == 2u);
+    check("multi: example.com present", reader.data.find("example.com") != reader.data.end());
+    check("multi: api.example.com present", reader.data.find("api.example.com") != reader.data.end());
 
-    const auto& ws = reader.data.at("");
-    // Last server block's values win
-    check("multi: last server listen port 5000", ws.listen[0].port == 5000);
-    check("multi: last server root /var/www/site2", ws.root == "/var/www/site2");
-    check("multi: last server index index.php", ws.index == "index.php");
-    check("multi: last server missing_content_type DEFAULT",
-        ws.missing_content_type_policy == MissingContentTypePolicy::DEFAULT);
-    check("multi: last server missing_content_type default type",
-        ws.missing_content_type_default == "application/json");
+    const auto& first = reader.data.at("example.com");
+    check("multi: example.com listen port 4000", first.listen[0].port == 4000);
+    check("multi: example.com root /var/www/site1", first.root == "/var/www/site1");
+    check("multi: example.com index index.html", first.index == "index.html");
+    check("multi: example.com missing_content_type REJECT",
+        first.missing_content_type_policy == MissingContentTypePolicy::REJECT);
+    check("multi: example.com location / exists",
+        first.locations.find("/") != first.locations.end());
+    check("multi: example.com location / root",
+        first.locations.at("/").root == "/var/www/site1");
+
+    const auto& second = reader.data.at("api.example.com");
+    check("multi: api.example.com listen port 5000", second.listen[0].port == 5000);
+    check("multi: api.example.com root /var/www/site2", second.root == "/var/www/site2");
+    check("multi: api.example.com index index.php", second.index == "index.php");
+    check("multi: api.example.com missing_content_type DEFAULT",
+        second.missing_content_type_policy == MissingContentTypePolicy::DEFAULT);
+    check("multi: api.example.com missing_content_type default type",
+        second.missing_content_type_default == "application/json");
 
     check("multi: location /upload exists",
-        ws.locations.find("/upload") != ws.locations.end());
-    const auto& upload = ws.locations.at("/upload");
+        second.locations.find("/upload") != second.locations.end());
+    const auto& upload = second.locations.at("/upload");
     check("multi: location /upload upload_dir",
         upload.upload_dir == "/tmp/uploads");
     check("multi: location /upload missing_content_type DEFAULT",
         upload.missing_content_type_policy == MissingContentTypePolicy::DEFAULT);
     check("multi: location /upload default type octet-stream",
         upload.missing_content_type_default == "application/octet-stream");
-    check("multi: location / exists",
-        ws.locations.find("/") != ws.locations.end());
+    check("multi: api.example.com location / exists",
+        second.locations.find("/") != second.locations.end());
 }
 
 int main(int argc, char** argv) {
