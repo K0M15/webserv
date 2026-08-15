@@ -49,6 +49,9 @@ std::pair<std::string, WebserverSettings> ConfigReader::readConfigBlock(const st
 {
     std::pair<std::string, WebserverSettings> res;
     res.second = WebserverSettings::fromBlock(block);
+    // Key the server block by its first server_name so several virtual hosts
+    // can coexist. An unnamed block falls back to "" (the default server).
+    res.first = res.second.server_name.empty() ? "" : res.second.server_name[0];
     return res;
 }
 
