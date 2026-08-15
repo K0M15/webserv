@@ -80,7 +80,6 @@ static void test_multi_server() {
         upload.missing_content_type_policy == MissingContentTypePolicy::DEFAULT);
     check("multi: location /upload default type octet-stream",
         upload.missing_content_type_default == "application/octet-stream");
-<<<<<<< HEAD
     check("multi: block 2 location / root",
         site2->locations.at("/").root == "/var/www/site2");
 
@@ -89,10 +88,6 @@ static void test_multi_server() {
         reader.vhosts.at("example.com") == site1);
     check("multi: vhosts api.example.com -> block 2",
         reader.vhosts.at("api.example.com") == site2);
-=======
-    check("multi: api.example.com location / exists",
-        second.locations.find("/") != second.locations.end());
->>>>>>> f5e14b6 (small bug regarding php cgi handling fixed)
 }
 
 int main(int argc, char** argv) {
