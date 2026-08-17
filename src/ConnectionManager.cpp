@@ -614,7 +614,20 @@ void ConnectionManager::handlePost(Connection& conn, const Request& req,
         return;
     }
     outfile.write(req.getBody().data(), static_cast<std::streamsize>(req.getBody().size()));
+    if (!outfile.good())
+    {
+        outfile.close();
+        std::remove(dest_path.c_str());
+        sendResponse(conn, errorResponse(500, conn.settings, location));
+        return;
+    }
     outfile.close();
+    if (!outfile.good())
+    {
+        std::remove(dest_path.c_str());
+        sendResponse(conn, errorResponse(500, conn.settings, location));
+        return;
+    }
 
     HttpResponse resp;
     resp.setStatus(201);
