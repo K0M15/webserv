@@ -793,7 +793,7 @@ bool ConnectionManager::tryRedirect(Connection& conn, const LocationConfig* loca
     return true;
 }
 
-const WebserverSettings* ConnectionManager::resolveSettings(Connection& conn, Request req) const
+const WebserverSettings* ConnectionManager::resolveSettings(Connection& conn, const Request& req) const
 {
     std::string target = req.getHeader("host");
     // remove port and colon
