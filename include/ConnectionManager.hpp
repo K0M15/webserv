@@ -51,7 +51,7 @@ private:
 
     bool    tryRedirect(Connection& conn, const LocationConfig* location);
 
-    const WebserverSettings* resolveSettings(Connection& conn, Request req) const;
+    const WebserverSettings* resolveSettings(Connection& conn, const Request& req) const;
 
     void    sendResponse(Connection& conn, const HttpResponse& response);
     HttpResponse errorResponse(unsigned int code,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include <set>
 #include <vector>
 #include <string>
 #include <netinet/in.h>
@@ -21,6 +22,7 @@ private:
     ConnectionManager               m_conn_manager;
     std::map<std::string, int>      m_listen_fds;
     std::map<int, std::vector<const WebserverSettings*>> m_socket_settings;
+    std::set<std::string>           m_default_keys;
     volatile bool                   m_running;
 
     int  createListenSocket(const ListenDirective& ld);
