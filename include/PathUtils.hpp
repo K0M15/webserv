@@ -10,8 +10,6 @@ public:
     {
         RESOLVE_OK,
         RESOLVE_BAD_PATH,
-        RESOLVE_EMPTY,
-        RESOLVE_NESTED_PATH
     };
 
     static std::string    stripQuery(const std::string& url);

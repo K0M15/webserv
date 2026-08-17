@@ -63,7 +63,7 @@ PathUtils::ResolveResult PathUtils::resolveUnder(const std::string& base, const 
     if (path.empty())
     {
         out.clear();
-        return RESOLVE_EMPTY;
+        return RESOLVE_BAD_PATH;
     }
 
     if (!isSafeRelative(path))
@@ -74,7 +74,7 @@ PathUtils::ResolveResult PathUtils::resolveUnder(const std::string& base, const 
     if (!allow_nested && path.find('/') != std::string::npos)
     {
         out.clear();
-        return RESOLVE_NESTED_PATH;
+        return RESOLVE_BAD_PATH;
     }
 
     std::string prefix = base;
