@@ -599,9 +599,12 @@ void ConnectionManager::handlePost(Connection& conn, const Request& req,
         return;
     }
 
-    std::string url_path = PathUtils::stripQuery(req.getURL().str());
+   std::string url_path = PathUtils::stripQuery(req.getURL().str());
     std::string dest_path;
-    if (PathUtils::resolveUnder(location->upload_dir, url_path, location->path, dest_path) != PathUtils::RESOLVE_OK)
+    PathUtils::ResolveResult r = PathUtils::resolveUnder(
+            location->upload_dir, url_path, location->path, dest_path, false);
+
+    if (r != PathUtils::RESOLVE_OK)
     {
         sendResponse(conn, errorResponse(400, conn.settings, location));
         return;
