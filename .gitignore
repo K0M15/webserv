@@ -4,5 +4,5 @@ bin/
 .vscode/
 en.subject.pdf
 POST-HANDLING.md
-www/upload/*
+www/uploads/*
 docs/BUG_REPORT.md
