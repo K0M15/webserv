@@ -9,7 +9,7 @@ ConfigReader::ConfigReader(const std::string& file)
     switch (configresult)
     {
     case 1:
-        // break;
+        [[fallthrough]];
     case 2:
         throw HttpServerException("Error reading file!");
         break;
