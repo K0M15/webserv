@@ -2,7 +2,20 @@
 
 #include <string>
 #include <map>
+#include <ctime>
 #include "HttpStatusReason.hpp"
+
+#ifndef APPLICATION_NAME
+# define APPLICATION_NAME "webserv"
+#endif
+
+#ifndef APPLICATION_VERSION
+# define APPLICATION_VERSION "0.1"
+#endif
+
+#ifndef APPLICATION_ID
+# define APPLICATION_ID APPLICATION_NAME "/" APPLICATION_VERSION
+#endif
 
 class HttpResponse {
 public:
@@ -25,6 +38,7 @@ public:
 
     static HttpResponse error(unsigned int code);
     static HttpResponse dirindex(const std::string& path, const std::string prefix);
+    static std::string httpDate(time_t t);
 
 private:
     unsigned int m_status;
