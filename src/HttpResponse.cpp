@@ -7,6 +7,16 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <ctime>
+
+std::string HttpResponse::httpDate(time_t t)
+{
+    struct tm tm_buf;
+    gmtime_r(&t, &tm_buf);
+    char buf[64];
+    std::strftime(buf, sizeof(buf), "%a, %d %b %Y %H:%M:%S GMT", &tm_buf);
+    return buf;
+}
 
 HttpResponse::HttpResponse()
     : m_status(200), m_keep_alive(false)
@@ -58,6 +68,12 @@ std::string HttpResponse::toString() const
         oss << "Content-Length: " << m_body.size() << "\r\n";
 
     oss << "Connection: " << (m_keep_alive ? "keep-alive" : "close") << "\r\n";
+
+    if (m_headers.find("Date") == m_headers.end())
+        oss << "Date: " << httpDate(time(nullptr)) << "\r\n";
+
+    if (m_headers.find("Server") == m_headers.end())
+        oss << "Server: " << APPLICATION_VERSION << "\r\n";
 
     oss << "\r\n";
 
