@@ -169,6 +169,8 @@ const std::unordered_map<std::string, Handler> entryParser = {
     )}
 };
 
+#undef PUT_INTO
+
 static void dispatch(const std::string& line, ConfigTarget target) {
     size_t space = line.find_first_of(" \t");
     std::string keyword = line.substr(0, space);
