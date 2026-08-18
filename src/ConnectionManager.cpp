@@ -15,16 +15,18 @@
 #include <sstream>
 #include <iterator>
 #include <cctype>
+#include <algorithm>
+#include <charconv>
+#include <sys/stat.h>
 
 Connection::Connection(int fd, const sockaddr_in& a, const std::vector<const WebserverSettings*> candidates)
     :   fd(fd), addr(a), state(READING),
         headers_complete(false), content_length(0),
+        header_end(0), chunked(false),
         bytes_sent(0), keep_alive(false),
         last_active(std::time(nullptr)), 
         settings(candidates.empty() ? nullptr : candidates.front()),
-        candidates(candidates)
-{
-}
+        candidates(candidates){}
 
 ConnectionManager::ConnectionManager()
 {
@@ -627,6 +629,11 @@ void ConnectionManager::handleGet(Connection& conn, const std::string& root,
         resp.setStatus(200);
         resp.setBody(ss.str());
         resp.addHeader("Content-Type", mimeType(path));
+
+        struct stat st;
+        if (stat(path.c_str(), &st) == 0)
+            resp.addHeader("Last-Modified", HttpResponse::httpDate(st.st_mtime));
+
         sendResponse(conn, resp);
         return;
     }
@@ -652,6 +659,11 @@ void ConnectionManager::handleHead(Connection& conn, const std::string& root,
         HttpResponse resp;
         resp.setStatus(200);
         resp.addHeader("Content-Type", mimeType(path));
+
+        struct stat st;
+        if (stat(path.c_str(), &st) == 0)
+            resp.addHeader("Last-Modified", HttpResponse::httpDate(st.st_mtime));
+
         sendResponse(conn, resp);
         return;
     }
@@ -706,7 +718,10 @@ void ConnectionManager::handlePost(Connection& conn, const Request& req,
 
     std::string url_path = PathUtils::stripQuery(req.getURL().str());
     std::string dest_path;
-    if (PathUtils::resolveUnder(location->upload_dir, url_path, location->path, dest_path) != PathUtils::RESOLVE_OK)
+    PathUtils::ResolveResult r = PathUtils::resolveUnder(
+            location->upload_dir, url_path, location->path, dest_path, false);
+
+    if (r != PathUtils::RESOLVE_OK)
     {
         sendResponse(conn, errorResponse(400, conn.settings, location));
         return;
@@ -719,7 +734,20 @@ void ConnectionManager::handlePost(Connection& conn, const Request& req,
         return;
     }
     outfile.write(req.getBody().data(), static_cast<std::streamsize>(req.getBody().size()));
+    if (!outfile.good())
+    {
+        outfile.close();
+        std::remove(dest_path.c_str());
+        sendResponse(conn, errorResponse(500, conn.settings, location));
+        return;
+    }
     outfile.close();
+    if (!outfile.good())
+    {
+        std::remove(dest_path.c_str());
+        sendResponse(conn, errorResponse(500, conn.settings, location));
+        return;
+    }
 
     HttpResponse resp;
     resp.setStatus(201);

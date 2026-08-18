@@ -10,13 +10,12 @@ public:
     {
         RESOLVE_OK,
         RESOLVE_BAD_PATH,
-        RESOLVE_EMPTY
     };
 
     static std::string    stripQuery(const std::string& url);
     static bool           isSafeRelative(const std::string& p);
     static ResolveResult  resolveUnder(const std::string& base, const std::string& url_path,
-                                        const std::string& location_prefix, std::string& out);
+                                        const std::string& location_prefix, std::string& out, bool allow_nested = true);
 private:
     PathUtils();
     PathUtils(const PathUtils&);
