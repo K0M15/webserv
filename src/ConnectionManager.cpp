@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <sys/stat.h>
 
 Connection::Connection(int fd, const sockaddr_in& a, const WebserverSettings* s)
     : fd(fd), addr(a), state(READING),
@@ -625,6 +626,11 @@ void ConnectionManager::handleGet(Connection& conn, const std::string& root,
         resp.setStatus(200);
         resp.setBody(ss.str());
         resp.addHeader("Content-Type", mimeType(path));
+
+        struct stat st;
+        if (stat(path.c_str(), &st) == 0)
+            resp.addHeader("Last-Modified", HttpResponse::httpDate(st.st_mtime));
+
         sendResponse(conn, resp);
         return;
     }
@@ -650,6 +656,11 @@ void ConnectionManager::handleHead(Connection& conn, const std::string& root,
         HttpResponse resp;
         resp.setStatus(200);
         resp.addHeader("Content-Type", mimeType(path));
+
+        struct stat st;
+        if (stat(path.c_str(), &st) == 0)
+            resp.addHeader("Last-Modified", HttpResponse::httpDate(st.st_mtime));
+
         sendResponse(conn, resp);
         return;
     }
@@ -690,7 +701,57 @@ void ConnectionManager::handlePost(Connection& conn, const Request& req,
                 break;
         }
     }
-    sendResponse(conn, errorResponse(501, conn.settings, location));
+    if (req.getBody().size() > conn.settings->max_body_size)
+    {
+        sendResponse(conn, errorResponse(413, conn.settings, location));
+        return;
+    }
+
+    if (!location || location->upload_dir.empty())
+    {
+        sendResponse(conn, errorResponse(403, conn.settings, location));
+        return;
+    }
+
+    std::string url_path = PathUtils::stripQuery(req.getURL().str());
+    std::string dest_path;
+    PathUtils::ResolveResult r = PathUtils::resolveUnder(
+            location->upload_dir, url_path, location->path, dest_path, false);
+
+    if (r != PathUtils::RESOLVE_OK)
+    {
+        sendResponse(conn, errorResponse(400, conn.settings, location));
+        return;
+    }
+
+    std::ofstream outfile(dest_path, std::ios::binary | std::ios::trunc);
+    if (!outfile.is_open())
+    {
+        sendResponse(conn, errorResponse(500, conn.settings, location));
+        return;
+    }
+    outfile.write(req.getBody().data(), static_cast<std::streamsize>(req.getBody().size()));
+    if (!outfile.good())
+    {
+        outfile.close();
+        std::remove(dest_path.c_str());
+        sendResponse(conn, errorResponse(500, conn.settings, location));
+        return;
+    }
+    outfile.close();
+    if (!outfile.good())
+    {
+        std::remove(dest_path.c_str());
+        sendResponse(conn, errorResponse(500, conn.settings, location));
+        return;
+    }
+
+    HttpResponse resp;
+    resp.setStatus(201);
+    resp.addHeader("Content-Type", "text/html");
+    resp.addHeader("Location", url_path);
+    resp.setBody("<h1>201 Created</h1>");
+    sendResponse(conn, resp);
 }
 
 void ConnectionManager::handleDelete(Connection& conn, const std::string& root,
