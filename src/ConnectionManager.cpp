@@ -97,16 +97,22 @@ void ConnectionManager::onReadable(int fd)
     conn.last_active = std::time(nullptr);
     conn.read_buffer.append(buf, static_cast<size_t>(n));
 
-    // Header flooding guard: while the header block is incomplete, bound how
-    // much we are willing to buffer. Body limits are enforced per-frame in
-    // isRequestComplete() so chunked framing overhead is not penalised.
-    if (conn.settings && !conn.headers_complete &&
-        conn.read_buffer.size() > conn.settings->max_header_size + 16384)
+    // Header flooding guard: bound the size of the header block itself
+    // (everything up to and including the final CRLFCRLF, or the whole
+    // buffer if that terminator hasn't arrived yet). Body limits are
+    // enforced separately, per-frame, in isRequestComplete().
+    if (conn.settings && !conn.headers_complete)
     {
-        HttpResponse resp = errorResponse(400, conn.settings, nullptr);
-        resp.setKeepAlive(false);
-        sendResponse(conn, resp);
-        return;
+        size_t header_end = conn.read_buffer.find("\r\n\r\n");
+        size_t header_len = (header_end != std::string::npos) ? header_end + 4 : conn.read_buffer.size();
+
+        if (header_len > conn.settings->max_header_size)
+        {
+            HttpResponse resp = errorResponse(431, conn.settings, nullptr);
+            resp.setKeepAlive(false);
+            sendResponse(conn, resp);
+            return;
+        }
     }
 
     RequestReadState state = isRequestComplete(conn);
@@ -723,7 +729,7 @@ void ConnectionManager::handlePost(Connection& conn, const Request& req,
 
     if (r != PathUtils::RESOLVE_OK)
     {
-        sendResponse(conn, errorResponse(400, conn.settings, location));
+        sendResponse(conn, errorResponse(40000, conn.settings, location));
         return;
     }
 
