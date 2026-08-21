@@ -18,6 +18,56 @@
 #include <algorithm>
 #include <charconv>
 #include <sys/stat.h>
+#include <cstdlib>
+#include <iomanip>
+
+
+#pragma region cookies
+
+struct SessionCookie
+{
+    std::string id;
+    std::string path;
+    int         maxAgeSeconds;
+};
+
+static std::string generateSessionId()
+{
+    int byteLengthSessionID = 8;
+    static bool seeded = false;
+    if (!seeded)
+    {
+        std::srand(static_cast<unsigned int>(std::time(nullptr)));
+        seeded = true;
+    }
+
+    std::ostringstream stream;
+    for (int i = 0; i < byteLengthSessionID; ++i)
+    {
+        unsigned int byte = static_cast<unsigned int>(std::rand() % 256);
+        stream << std::hex << std::setw(2) << std::setfill('0') << byte;
+    }
+    return stream.str();
+}
+
+/**
+ * helper to concatinate the key value pairs and setting up a proper response to browser.
+ */
+static std::string formatCookieHeader(const SessionCookie& cookie)
+{
+    // terminal debug use only
+    std::cout << " Setting cookie format:\n" 
+              << "ID: <" << cookie.id << ">"
+              << " Path: " << cookie.path
+              << " Lifetime: " << cookie.maxAgeSeconds << "s" << std::endl;
+
+    return "session_id=" + cookie.id +
+           "; Path=" + cookie.path +
+           "; Max-Age=" + std::to_string(cookie.maxAgeSeconds) +
+           "; HttpOnly";
+}
+
+#pragma endregion
 
 Connection::Connection(int fd, const sockaddr_in& a, const std::vector<const WebserverSettings*> candidates)
     :   fd(fd), addr(a), state(READING),
@@ -514,7 +564,7 @@ void ConnectionManager::handleRequest(Connection& conn, const Request& req)
         switch (m)
         {
             case GET:
-                handleGet(conn, root, url_path, location); break;
+                handleGet(conn, root, url_path, location, req); break;
             case HEAD:
                 handleHead(conn, root, url_path, location); break;
             case POST:
@@ -614,7 +664,8 @@ void ConnectionManager::onCGIComplete(int fd)
 
 void ConnectionManager::handleGet(Connection& conn, const std::string& root,
                                    const std::string& url_path,
-                                   const LocationConfig* location)
+                                   const LocationConfig* location,
+                                   const Request& req)
 {
     std::string path = resolvePath(root, url_path, conn.settings);
 
@@ -634,6 +685,17 @@ void ConnectionManager::handleGet(Connection& conn, const std::string& root,
         if (stat(path.c_str(), &st) == 0)
             resp.addHeader("Last-Modified", HttpResponse::httpDate(st.st_mtime));
 
+        std::string session_id = req.getCookie("session_id");
+        if (session_id.empty() || m_activeSessions.find(session_id) == m_activeSessions.end())
+        {
+            SessionCookie cookie;
+            cookie.id = generateSessionId();
+            cookie.path = "/"; //assigning the cookie to every path
+            cookie.maxAgeSeconds = 60; // using this time for testing clarity. Should be much longer.
+            m_activeSessions.insert(cookie.id);
+            resp.addHeader("Set-Cookie", formatCookieHeader(cookie));
+        }
+        
         sendResponse(conn, resp);
         return;
     }
