@@ -102,7 +102,7 @@ int Webserver::createListenSocket(const ListenDirective& ld)
 
 void Webserver::setupListenSockets()
 {
-    for (auto& entry : m_config.blocks)
+    for (auto& entry : m_config.getAllServers())
     {
         WebserverSettings* settings = entry.get();
 
