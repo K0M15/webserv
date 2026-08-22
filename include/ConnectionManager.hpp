@@ -4,6 +4,7 @@
 #include "Connection.hpp"
 #include "PollHandler.hpp"
 #include "HttpResponse.hpp"
+#include <unordered_set>
 
 enum class RequestReadState {
     INCOMPLETE,         // wait for more
@@ -28,6 +29,7 @@ public:
 
 private:
     std::map<int, Connection> m_connections;
+    std::unordered_set<std::string> m_activeSessions;
 
     void    closeConnection(int fd);
     RequestReadState isRequestComplete(Connection& conn);
@@ -40,13 +42,14 @@ private:
     void    onCGIComplete(int fd);
 
     void    handleGet(Connection& conn, const std::string& root,
-                      const std::string& url_path, const LocationConfig* location);
+                        const std::string& url_path, const LocationConfig* location,
+                        const Request& req);
     void    handleHead(Connection& conn, const std::string& root,
-                       const std::string& url_path, const LocationConfig* location);
+                        const std::string& url_path, const LocationConfig* location);
     void    handlePost(Connection& conn, const Request& req,
-                       const LocationConfig* location);
+                        const LocationConfig* location);
     void    handleDelete(Connection& conn, const std::string& root,
-                         const std::string& url_path, const LocationConfig* location);
+                        const std::string& url_path, const LocationConfig* location);
     void    handleOptions(Connection& conn, const std::vector<Method>& allowed);
 
     bool    tryRedirect(Connection& conn, const LocationConfig* location);
