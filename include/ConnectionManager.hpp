@@ -5,6 +5,13 @@
 #include "PollHandler.hpp"
 #include "HttpResponse.hpp"
 #include <unordered_set>
+#include "InMemoryDB.hpp"
+
+struct SessionInfo
+{
+    std::string username;
+    std::string role;
+};
 
 enum class RequestReadState {
     INCOMPLETE,         // wait for more
@@ -29,7 +36,7 @@ public:
 
 private:
     std::map<int, Connection> m_connections;
-    std::unordered_set<std::string> m_activeSessions;
+    InMemoryDB<std::string, SessionInfo> m_activeSessions;
 
     void    closeConnection(int fd);
     RequestReadState isRequestComplete(Connection& conn);

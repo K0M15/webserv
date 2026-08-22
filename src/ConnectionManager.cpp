@@ -21,7 +21,6 @@
 #include <cstdlib>
 #include <iomanip>
 
-
 #pragma region cookies
 
 struct SessionCookie
@@ -686,13 +685,13 @@ void ConnectionManager::handleGet(Connection& conn, const std::string& root,
             resp.addHeader("Last-Modified", HttpResponse::httpDate(st.st_mtime));
 
         std::string session_id = req.getCookie("session_id");
-        if (session_id.empty() || m_activeSessions.find(session_id) == m_activeSessions.end())
+        if (session_id.empty() || !m_activeSessions.exists(session_id))
         {
             SessionCookie cookie;
             cookie.id = generateSessionId();
             cookie.path = "/"; //assigning the cookie to every path
             cookie.maxAgeSeconds = 60; // using this time for testing clarity. Should be much longer.
-            m_activeSessions.insert(cookie.id);
+            m_activeSessions.set(cookie.id,SessionInfo());
             resp.addHeader("Set-Cookie", formatCookieHeader(cookie));
         }
         
