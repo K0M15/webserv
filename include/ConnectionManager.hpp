@@ -67,4 +67,6 @@ private:
     HttpResponse errorResponse(unsigned int code,
                                const WebserverSettings* settings,
                                const LocationConfig* location);
+    void    handleLogin(Connection& conn, const Request& req);
+    void    handleLogout(Connection& conn, const Request& req);
 };
