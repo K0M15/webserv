@@ -8,19 +8,7 @@
 #include <utility>
 #include <optional>
 #include <Request.hpp>
-// #include <BaseResponse.hpp>
-
-#ifndef DEFAULT_MAX_CGI_OUTPUT
-# define DEFAULT_MAX_CGI_OUTPUT 2e6
-#endif
-
-#ifndef DEFAULT_MAX_BODY_SIZE
-# define DEFAULT_MAX_BODY_SIZE 1e6
-#endif
-
-#ifndef DEFAULT_MAX_HEADER_SIZE
-# define DEFAULT_MAX_HEADER_SIZE 16384UL
-#endif
+#include "Defines.hpp"
 
 typedef enum {
     GET = 0,
