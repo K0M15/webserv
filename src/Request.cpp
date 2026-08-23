@@ -174,11 +174,17 @@ std::string Request::getCookie(const std::string& name) const
         if (delimiterPosition != std::string::npos)
         {
             std::string key = pair.substr(0, delimiterPosition);
-            size_t start = key.find_first_not_of(' ');
+            size_t start = key.find_first_not_of(" \t");
             if (start != std::string::npos)
                 key = key.substr(start);
             if (key == name)
-                return pair.substr(delimiterPosition + 1);
+            {
+                std::string value = pair.substr(delimiterPosition + 1);
+                size_t end = value.find_last_not_of(" \t");
+                if (end != std::string::npos)
+                    value = value.substr(0, end + 1);
+                return value;
+            }
         }
 
         if (semicolonDelimiter == std::string::npos)
