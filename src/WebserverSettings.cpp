@@ -1,9 +1,11 @@
 #include "WebserverSettings.hpp"
 #include <sstream>
 #include <cstdlib>
+#include <arpa/inet.h>
 #include <algorithm>
 #include <cctype>
 #include <limits>
+#include <stdexcept>
 
 static std::string valueAfter(const std::string& line, const std::string& keyword)
 {
@@ -14,6 +16,35 @@ static std::string valueAfter(const std::string& line, const std::string& keywor
     if (!val.empty() && val.back() == ';')
         val.pop_back();
     return val;
+}
+
+static bool isValidIPv4(const std::string& address)
+{
+    struct in_addr addr;
+    return inet_pton(AF_INET, address.c_str(), &addr) == 1;
+}
+
+static bool isAllDigits(const std::string& s)
+{
+    if (s.empty())
+        return false;
+    for (size_t i = 0; i < s.size(); ++i)
+    {
+        if (!std::isdigit(static_cast<unsigned char>(s[i])))
+            return false;
+    }
+    return true;
+}
+
+static bool parsePort(const std::string& value, int& outPort)
+{
+    if (!isAllDigits(value))
+        return false;
+    long parsed = std::strtol(value.c_str(), nullptr, 10);
+    if (parsed < 1 || parsed > 65535)
+        return false;
+    outPort = static_cast<int>(parsed);
+    return true;
 }
 
 WebserverSettings WebserverSettings::getDefaultSettings()
@@ -80,19 +111,54 @@ const std::unordered_map<std::string, Handler> entryParser = {
     {"listen", PUT_INTO(
         if (t.interface == nullptr)
             throw std::runtime_error("Listen directive in location block");
+
+        std::istringstream ls(val);
+        std::string hostport;
+        ls >> hostport;
+        if (hostport.empty())
+            throw std::runtime_error("listen requires an address:port value");
+
         ListenDirective dir;
-        dir.is_default = (val.find("default_server") != std::string::npos);
-        size_t colon = val.rfind(':');
+        dir.is_default = false;
+        std::string option;
+        while (ls >> option)
+        {
+            if (option == "default_server")
+                dir.is_default = true;
+            else
+                throw std::runtime_error("unknown listen option: " + option);
+        }
+
+        std::string addressPart;
+        std::string portPart;
+        int port;
+        size_t colon = hostport.rfind(':');
         if (colon != std::string::npos)
         {
-            dir.address = val.substr(0, colon);
-            dir.port = std::atoi(val.substr(colon + 1).c_str());
+            addressPart = hostport.substr(0, colon);
+            portPart = hostport.substr(colon + 1);
+            if(!parsePort(portPart, port))
+                throw std::runtime_error("invalid listen port: " +portPart);
+
         }
-        else
+        else if (isAllDigits(hostport))
         {
-            dir.address = "0.0.0.0";
-            dir.port = std::atoi(val.c_str());
+            addressPart = "0.0.0.0";
+            portPart = hostport;
+            if(!parsePort(portPart, port))
+                throw std::runtime_error("invalid listen port: " +portPart);
         }
+        else 
+        {
+            addressPart = hostport;
+            port = DEFAULT_PORT;
+        }
+        
+
+        if (!isValidIPv4(addressPart))
+            throw std::runtime_error("invalid listen address: " + addressPart);
+        dir.address = addressPart;
+        dir.port = port;
         t.interface->push_back(dir);
     )},
     {"server_name", PUT_INTO(

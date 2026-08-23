@@ -75,6 +75,7 @@ ConfigReader::ParseResult ConfigReader::readConfig(std::ifstream& rawsettings)
     std::size_t lineNo = 0;
     std::string line;
     std::string block;
+    std::map<std::string, std::size_t> defaultServerLines;  // "address:port" -> line of the block that first claimed it
 
     while (std::getline(rawsettings, line))
     {
@@ -133,6 +134,19 @@ ConfigReader::ParseResult ConfigReader::readConfig(std::ifstream& rawsettings)
             try
             {
                 auto settings = readConfigBlock(block);
+                if (settings->listen.empty())
+                    throw HttpServerException("server block requires at least one 'listen' directive");
+                for (const auto& listenDir : settings->listen)
+                {
+                    if (!listenDir.is_default)
+                        continue;
+                    const std::string key = listenDir.address + ":" + std::to_string(listenDir.port);
+                    const auto [it, inserted] = defaultServerLines.try_emplace(key, lineNo);
+                    if (!inserted)
+                        throw HttpServerException(
+                            "duplicate default_server for " + key + " (already claimed by the server block ending at line " +
+                            std::to_string(it->second) + ")");
+                }
                 for (const auto& name : settings->server_name)
                 {
                     const auto [it, inserted] = vhosts.try_emplace(name, settings.get());
