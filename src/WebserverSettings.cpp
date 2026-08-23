@@ -20,7 +20,7 @@ WebserverSettings WebserverSettings::getDefaultSettings()
 {
     WebserverSettings settings;
     settings.dirindex = false;
-    settings.index = "index.html";
+    settings.index = DEFAULT_INDEX_FILE;
     settings.root = "";
     settings.missing_content_type_policy = MissingContentTypePolicy::REJECT;
     settings.max_cgi_output = DEFAULT_MAX_CGI_OUTPUT;
@@ -90,7 +90,7 @@ const std::unordered_map<std::string, Handler> entryParser = {
         }
         else
         {
-            dir.address = "0.0.0.0";
+            dir.address = DEFAULT_LISTEN_ADDRESS;
             dir.port = std::atoi(val.c_str());
         }
         t.interface->push_back(dir);
@@ -107,7 +107,7 @@ const std::unordered_map<std::string, Handler> entryParser = {
         if (t.max_header_size == nullptr)
             throw std::runtime_error("max_header_size inside location block");
         unsigned long mhs = std::stoul(val);
-        if (mhs < 50 || mhs > 8192)
+        if (mhs < MIN_MAX_HEADER_SIZE || mhs > MAX_MAX_HEADER_SIZE)
             throw std::runtime_error("max_header_size must be between 50 and 8192 bytes");
         *t.max_header_size = mhs;
     )},
@@ -115,7 +115,7 @@ const std::unordered_map<std::string, Handler> entryParser = {
         if (t.max_body_size == nullptr)
             throw std::runtime_error("max_body_size inside location block");
         unsigned long mbs = std::stoul(val);
-        if (mbs < 50 || mbs > 100UL * 1024UL * 1024UL)
+        if (mbs < MIN_MAX_BODY_SIZE || mbs > MAX_MAX_BODY_SIZE)
             throw std::runtime_error("max_body_size must be between 50 and 104857600 bytes");
         *t.max_body_size = mbs;
     )},

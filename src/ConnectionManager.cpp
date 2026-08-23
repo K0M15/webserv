@@ -4,6 +4,7 @@
 #include "CGIHandler.hpp"
 #include "PathUtils.hpp"
 #include "Chunked.hpp"
+#include "Defines.hpp"
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -489,9 +490,9 @@ void ConnectionManager::handleRequest(Connection& conn, const Request& req)
     if (!keep_alive.empty() && keep_alive == "true")
     {
         int optval = 1;
-        int idle = 60;
-        int interval = 10;
-        int count = 3;
+        int idle = DEFAULT_TCP_KEEPIDLE;
+        int interval = DEFAULT_TCP_KEEPINTVL;
+        int count = DEFAULT_TCP_KEEPCNT;
         setsockopt(conn.fd, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval));
         setsockopt(conn.fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
         setsockopt(conn.fd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));

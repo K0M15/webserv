@@ -1,6 +1,7 @@
 
 #include "Request.hpp"
 #include "Chunked.hpp"
+#include "Defines.hpp"
 #include "sys/socket.h"
 #include <cctype>
 #include <limits>
@@ -67,8 +68,8 @@ Request Request::fromString(const std::string& rawRequest)
         std::stringstream ss(line);
         if (!(ss >> req.method >> req.url >> req.version))
             throw std::runtime_error("Malformed request line");
-        if (req.version != "HTTP/1.1")
-            throw HTTPVersionNotSupportedException("HTTP/1.1 required");
+        if (req.version != HTTP_VERSION)
+            throw HTTPVersionNotSupportedException(std::string(HTTP_VERSION) + " required");
         if (req.method != "GET" && req.method != "POST" && req.method != "DELETE")
             throw HTTPMethodNotAllowedException("Method not supported");
     }
