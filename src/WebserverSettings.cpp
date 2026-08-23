@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <limits>
+#include <functional>
 
 static std::string valueAfter(const std::string& line, const std::string& keyword)
 {

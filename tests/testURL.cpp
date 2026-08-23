@@ -84,6 +84,16 @@ static void test_invalid_urls() {
         {"/path/./file",                    "current directory component"},
         {"/path/../",                       "parent traversal ending in slash"},
         {"/path/./",                        "current dir ending in slash"},
+        {"/foo\x01" "bar",                  "control char 0x01"},
+        {"/foo\x7f" "bar",                  "control char 0x7F"},
+        {"http://host/#../../etc/passwd",   "fragment in absolute URI"},
+        {"http://host/foo#../../bar",       "fragment in URI path"},
+        {"/foo#/../bar",                    "fragment in origin-form"},
+        {"/foo/%2e%2e/bar",                 "percent-encoded traversal lower"},
+        {"/foo/%2E%2E/bar",                 "percent-encoded traversal upper"},
+        {"/foo/.%2e/bar",                   "mixed dot percent-encoded"},
+        {"/foo/%2e/bar",                    "percent-encoded single dot"},
+        {"/foo%2f..%2fbar",                 "percent-encoded slash traversal"},
     };
 
     for (const auto& c : cases) {
