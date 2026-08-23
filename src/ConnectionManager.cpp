@@ -54,12 +54,13 @@ static std::string generateSessionId()
  */
 static std::string formatCookieHeader(const SessionCookie &cookie)
 {
+    #ifdef DEBUG
     // terminal debug use only
     std::cout << " Setting cookie format:\n"
               << "ID: <" << cookie.id << ">"
               << " Path: " << cookie.path
               << " Lifetime: " << cookie.maxAgeSeconds << "s" << std::endl;
-
+    #endif
     return "session_id=" + cookie.id +
            "; Path=" + cookie.path +
            "; Max-Age=" + std::to_string(cookie.maxAgeSeconds) +
@@ -791,7 +792,6 @@ void ConnectionManager::handleGet(Connection &conn, const std::string &root,
                                   const Request &req)
 {
     std::string path = resolvePath(root, url_path, conn.settings);
-
     std::ifstream file(path);
     if (file.is_open())
     {
@@ -813,9 +813,13 @@ void ConnectionManager::handleGet(Connection &conn, const std::string &root,
         {
             SessionCookie cookie;
             cookie.id = generateSessionId();
-            cookie.path = "/";         // assigning the cookie to every path
-            cookie.maxAgeSeconds = 60; // using this time for testing clarity. Should be much longer.
-            m_activeSessions.set(cookie.id, SessionInfo());
+            cookie.path = "/"; // assigning the cookie to every path
+            #ifdef DEBUG
+                cookie.maxAgeSeconds = 60; // using this time for testing clarity. Should be much longer.
+            #else
+                cookie.maxAgeSeconds = 60 * 60 * 24 * 7; // 1 week
+            #endif
+            m_activeSessions.insert(cookie.id);
             resp.addHeader("Set-Cookie", formatCookieHeader(cookie));
         }
 
