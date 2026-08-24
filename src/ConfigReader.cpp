@@ -44,8 +44,8 @@ ConfigReader::ConfigReader(const std::string& file)
     switch (readConfig(rawsettings))
     {
     case ParseResult::TotalFailure:
-        throw HttpServerException("Error reading config file: " + file);
     case ParseResult::SuccessWithWarnings:
+        throw HttpServerException("Error reading config file: " + file);
     case ParseResult::Success:
         break;
     }
