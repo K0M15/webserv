@@ -95,22 +95,13 @@ void ConnectionManager::handleLogin(Connection &conn, const Request &req)
     std::string username = extractField(req.getBody(), "username");
     std::string password = extractField(req.getBody(), "password");
 
-    if (username == "admin" && password == "hidethislater")
+    std::optional<UserCredentials> credentials = m_userCredentials.get(username);
+    if (credentials.has_value() && credentials->password == password)
     {
-        SessionCookie cookie;
-        cookie.id = generateSessionId();
-        cookie.path = "/";
-        cookie.maxAgeSeconds = 120;
-
-        SessionInfo details;
-        details.username = username;
-        details.role = "admin";
-        m_activeSessions.set(cookie.id, details);
-
         HttpResponse resp;
         resp.setStatus(200);
-        resp.addHeader("Set-Cookie", formatCookieHeader(cookie));
-        resp.setBody("<h1>User Logged in: " + username + "</h1>");
+        resp.addHeader("Set-Cookie", addCookie(username, credentials->role));
+        std::cout << username << " logged in with role: " << credentials->role << std::endl;
         sendResponse(conn, resp);
         return ;
     }
@@ -135,6 +126,73 @@ void ConnectionManager::handleLogout(Connection &conn, const Request &req)
     sendResponse(conn, resp);
 }
 
+std::string ConnectionManager::addCookie(const std::string& username, const std::string& role)
+{
+    SessionCookie cookie;
+    cookie.id = generateSessionId();
+    cookie.path = "/";
+
+    #ifdef DEBUG
+        cookie.maxAgeSeconds = 60;
+    #else  
+        cookie.maxAgeSeconds = 60 * 60 * 24 * 7;
+    #endif
+
+    SessionInfo info;
+    info.username = username;
+    info.role = role;
+    info.expiresAt = std::time(nullptr) + cookie.maxAgeSeconds;
+
+    m_activeSessions.set(cookie.id, info);
+
+    return (formatCookieHeader(cookie));
+}
+
+void ConnectionManager::deleteExpiredSessions()
+{
+    time_t now = std::time(nullptr);
+    std::vector<std::string> sessionIds = m_activeSessions.keys();
+
+    for (size_t i = 0; i < sessionIds.size(); ++i)
+    {
+        std::optional<SessionInfo> session = m_activeSessions.get(sessionIds[i]);
+        if (!session.has_value())
+            continue;
+
+        std::cout << sessionIds[i] 
+                  << " expires in " 
+                  << (session->expiresAt - now) 
+                  << " seconds." << std::endl;
+        
+        if (now > session->expiresAt)
+            m_activeSessions.del(sessionIds[i]);
+    }
+}
+
+HttpStatusReason::Code ConnectionManager::checkRole(const Request &req, const std::string& requiredRole)
+{
+    std::string sessionID = req.getCookie("session_id");
+    if(sessionID.empty())
+        return HttpStatusReason::Code::UNAUTHORIZED;
+    std::optional<SessionInfo> session = m_activeSessions.get(sessionID);
+    if(!session.has_value() || session->username.empty())
+        return HttpStatusReason::Code::UNAUTHORIZED;
+    if(session->role != requiredRole)
+        return HttpStatusReason::Code::FORBIDDEN;
+    return HttpStatusReason::Code::OK;
+}
+
+bool    ConnectionManager::handleRole(Connection& conn, const Request& req, const LocationConfig* location, const std::string& requiredRole)
+{
+    HttpStatusReason::Code authResult = checkRole(req, requiredRole);
+    if (authResult != HttpStatusReason::Code::OK)
+    {
+        sendResponse(conn, errorResponse(static_cast<unsigned int>(authResult), conn.settings, location));
+        return (false);
+    }
+    return (true);
+}
+
 #pragma endregion
 
 Connection::Connection(int fd, const sockaddr_in &a, const std::vector<const WebserverSettings *> candidates)
@@ -148,6 +206,15 @@ Connection::Connection(int fd, const sockaddr_in &a, const std::vector<const Web
 
 ConnectionManager::ConnectionManager()
 {
+    UserCredentials adminCredentials;
+    adminCredentials.password = "finedining";
+    adminCredentials.role = "admin";
+    m_userCredentials.set("admin", adminCredentials);
+
+    UserCredentials guestCredentials;
+    guestCredentials.password = "guestpass";
+    guestCredentials.role = "user";
+    m_userCredentials.set("guest", guestCredentials);
 }
 
 ConnectionManager::~ConnectionManager()
@@ -685,7 +752,8 @@ void ConnectionManager::handleRequest(Connection &conn, const Request &req)
             handlePost(conn, req, location);
             break;
         case DELETE:
-            handleDelete(conn, root, url_path, location);
+            if (handleRole(conn, req, location, "admin"))
+                handleDelete(conn, root, url_path, location);
             break;
         case OPTIONS:
         {
@@ -810,18 +878,7 @@ void ConnectionManager::handleGet(Connection &conn, const std::string &root,
 
         std::string session_id = req.getCookie("session_id");
         if (session_id.empty() || !m_activeSessions.exists(session_id))
-        {
-            SessionCookie cookie;
-            cookie.id = generateSessionId();
-            cookie.path = "/"; // assigning the cookie to every path
-            #ifdef DEBUG
-                cookie.maxAgeSeconds = 60; // using this time for testing clarity. Should be much longer.
-            #else
-                cookie.maxAgeSeconds = 60 * 60 * 24 * 7; // 1 week
-            #endif
-            m_activeSessions.insert(cookie.id);
-            resp.addHeader("Set-Cookie", formatCookieHeader(cookie));
-        }
+            resp.addHeader("Set-Cookie", addCookie("", ""));
 
         sendResponse(conn, resp);
         return;
@@ -1066,8 +1123,7 @@ void ConnectionManager::checkTimeouts(int timeout_seconds)
             onClose(fd);
         }
         else
-        {
             ++it;
-        }
+        deleteExpiredSessions();
     }
 }

@@ -5,6 +5,7 @@
 #include <shared_mutex>
 #include <optional>
 #include <mutex>
+#include <vector>
 
 template <typename K, typename V>
 class InMemoryDB {
@@ -36,17 +37,16 @@ public:
         std::shared_lock<std::shared_mutex> lock(rw_lock);
         return table.find(key) != table.end();
     }
+    // check which keys we already have
+    std::vector<K> keys() const
+    {
+        std::shared_lock<std::shared_mutex> lock(rw_lock);
+        std::vector<K> result;
+        result.reserve(table.size());
+
+        for (auto it = table.begin(); it != table.end(); ++it)
+            result.push_back(it->first);
+
+        return(result);
+    }
 };
-// int main() {
-//     InMemoryDB<std::string, std::string> db;
-//     db.set("user:101", "Alice");
-//     db.set("user:102", "Bob");
-//     if (auto val = db.get("user:101"); val) {
-//         std::cout << "Found: " << *val << "\n";
-//     }
-//     db.del("user:101");
-//     if (!db.exists("user:101")) {
-//         std::cout << "user:101 successfully removed.\n";
-//     }
-//     return 0;
-// }

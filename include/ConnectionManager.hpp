@@ -4,12 +4,21 @@
 #include "Connection.hpp"
 #include "PollHandler.hpp"
 #include "HttpResponse.hpp"
+#include "HttpStatusReason.hpp"
 #include <unordered_set>
 #include "InMemoryDB.hpp"
+#include <ctime>
 
 struct SessionInfo
 {
     std::string username;
+    std::string role;
+    time_t      expiresAt;
+};
+
+struct UserCredentials
+{
+    std::string password;
     std::string role;
 };
 
@@ -37,6 +46,7 @@ public:
 private:
     std::map<int, Connection> m_connections;
     InMemoryDB<std::string, SessionInfo> m_activeSessions;
+    InMemoryDB<std::string, UserCredentials> m_userCredentials;
 
     void    closeConnection(int fd);
     RequestReadState isRequestComplete(Connection& conn);
@@ -59,6 +69,8 @@ private:
                         const std::string& url_path, const LocationConfig* location);
     void    handleOptions(Connection& conn, const std::vector<Method>& allowed);
 
+    bool    handleRole(Connection& conn, const Request& req, const LocationConfig* location, const std::string& requiredRole);
+
     bool    tryRedirect(Connection& conn, const LocationConfig* location);
 
     const WebserverSettings* resolveSettings(Connection& conn, const Request& req) const;
@@ -67,6 +79,9 @@ private:
     HttpResponse errorResponse(unsigned int code,
                                const WebserverSettings* settings,
                                const LocationConfig* location);
+    HttpStatusReason::Code checkRole(const Request &req, const std::string& requiredRole);
     void    handleLogin(Connection& conn, const Request& req);
     void    handleLogout(Connection& conn, const Request& req);
+    void    deleteExpiredSessions();
+    std::string addCookie(const std::string& username, const std::string& role);
 };
