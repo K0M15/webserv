@@ -21,6 +21,24 @@ private:
     Request() : chunked(false) {}
     
 public:
+    class HTTPVersionNotSupportedException : public std::exception {
+    private:
+        std::string _reason;
+    public:
+        HTTPVersionNotSupportedException(const std::string& reason) : _reason(reason) {}
+        const char* what() const noexcept override {
+            return this->_reason.c_str();
+        }
+    };
+    class HTTPMethodNotAllowedException : public std::exception {
+    private:
+        std::string _reason;
+    public:
+        HTTPMethodNotAllowedException(const std::string& reason) : _reason(reason) {}
+        const char* what() const noexcept override {
+            return this->_reason.c_str();
+        }
+    };
     ~Request() = default;
     Request(const Request& other) = default;
     Request& operator=(const Request& other);

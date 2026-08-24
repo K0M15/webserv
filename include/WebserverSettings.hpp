@@ -19,7 +19,7 @@
 #endif
 
 #ifndef DEFAULT_MAX_HEADER_SIZE
-# define DEFAULT_MAX_HEADER_SIZE 1e6
+# define DEFAULT_MAX_HEADER_SIZE 16384UL
 #endif
 
 typedef enum {
