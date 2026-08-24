@@ -1,216 +1,245 @@
-*This project has been created as part of the 42 curriculum by , afelger*
+_This project has been created as part of the 42 curriculum by afelger, dabierma, jpflegha._
 
-# WEBSERV
+# webserv
 
-## A 42 webserver project
+A single-process, event-driven **HTTP/1.1 web server** written in **C++17**, developed for the 42 _webserv_ project.
 
-## Outline
+## Description
 
-A webserver takes requests over a tcp/ip socket and answers.
-The Protocol is HTTP/1.1 and can be HTTP/2.0
+`webserv` accepts TCP connections, reads and parses HTTP/1.1 requests, and answers with accurate status codes — just like a miniature NGINX. All I/O between the server, its listening sockets and the clients is multiplexed through **exactly one `poll()` call**; the server never blocks on a read or write and stays responsive under load.
 
+It can serve fully static websites, accept file uploads, run CGI scripts (e.g. Python, PHP-CGI), decode `Transfer-Encoding: chunked` request bodies, and host several websites (virtual hosts) on the same or multiple ports — all driven by an nginx-style configuration file.
 
-## Requirements
-use only one POLL() call
+## Features
+
+- **Non-blocking core** — a central event loop (`PollHandler`) wraps the single `poll()` call; read/write/close callbacks are dispatched per file descriptor. Idle connections are reaped after 60 s.
+- **HTTP/1.1 request parsing** (`Request`, `URL`) — request line + headers (case-insensitive lookup) + body framed either by `Content-Length` or `chunked`. Requests combining both framing mechanisms (smuggling attempt) are rejected. Malformed input maps to accurate status codes: `400`, `405`, `413`, `431`, `501`, `505`.
+- **Methods** — `GET`, `POST`, `DELETE` end-to-end (handlers for `HEAD`/`OPTIONS` are present as well).
+- **Virtual hosts & multi-port** — many `server` blocks may share one listen socket; the target site is picked from the `Host` header, falling back to the block flagged `default_server`.
+- **Routing** — nginx-style longest-prefix `location` matching, per-route method restrictions (answered with `405` + `Allow`) and whole-route redirects (`301`).
+- **Static content** — MIME-type detection, `Last-Modified`, directory index files, optional HTML directory listing.
+- **Uploads / deletes** — `POST` stores bodies in the configured `upload_dir` (`201 Created` + `Location`), `DELETE` removes files inside the document root.
+- **CGI** — extension-based dispatch (e.g. `.py`, `.php`) via `fork`/`execve`; the full CGI/1.1 environment is provided (`QUERY_STRING`, `CONTENT_*`, `HTTP_*`, …), chunked bodies are decoded before execution, CGI output pipes are drained through the same poll loop, and children are reaped asynchronously via `signalfd`.
+- **Chunked transfer decoding** (`Chunked`) — incremental hex-size chunk parsing with trailer support and overflow protection.
+- **Hardening** — lexical path containment (`PathUtils::resolveUnder` denies dot-segment traversal), header-size guard (`431`), body-size cap (`413`).
+- **Error pages** — custom pages per status code via config, plus generated built-in default pages.
+- **Graceful shutdown** — `SIGINT`/`SIGTERM` stop the loop and close all sockets cleanly.
+
+## Instructions
+
+### Requirements
+
+- Linux
+- `make` and a C++ compiler supporting C++17
+- `python3` for testing
+- for cgi scripts: interpreter installed
+
+### Build
+
+```bash
+make          # build ./webserv   (-Wall -Wextra -Werror -std=c++17)
+make clean    # remove object files
+make fclean   # also remove the binary
+make re       # rebuild from scratch
 ```
-[poll] waits for one of a set of file descriptors to become ready to perform I/O.
 
-The set of file descriptors to be monitored is specified in the fds argument, which is an array of structures of the following form:
+### Run
 
-    struct pollfd {
-        int   fd;         /* file descriptor */
-        short events;     /* requested events */
-        short revents;    /* returned events */
-    };
-
-The caller should specify the number of items in the fds array in nfds.
+```bash
+./webserv <config_file.conf>     # exactly one argument ending in .conf
 ```
 
+A ready-made example lives in [`test.conf`](test.conf); with it the server listens on `http://localhost:8080`.
+
+### Run the tests
+
+```bash
+make tests        # build and run every unit test suite
+make testURL      # or a single suite, e.g. testRequest, testConfigReader,
+                  # testChunked, testPollHandler, testHttpResponse,
+                  # testWebserverSettings, testHttpStatusReason, testCGI
 ```
-- Your program must use a configuration file, provided as an argument on the command line, or available in a default path.
-- You cannot execve another web server.
-- Your server must remain non-blocking at all times and properly handle client disconnections when necessary.
-- It must be non-blocking and use only 1 poll() (or equivalent) for all the I/O
-operations between the clients and the server (listen included).
-- poll() (or equivalent) must monitor both reading and writing simultaneously.
-- You must never do a read or a write operation without going through poll() (or
-equivalent).
-- Checking the value of errno to adjust the server behaviour is strictly forbidden
-after performing a read or write operation.
-- You are not required to use poll() (or an equivalent function) for regular disk files;
-read() and write() on them do not require readiness notifications.
-When using poll() or any equivalent call, you can use every associated macro or
-helper function (e.g., FD_SET for select()).
-- A request to your server should never hang indefinitely.
-- Your server must be compatible with standard web browsers of your choice.
-- NGINX may be used to compare headers and answer behaviours (pay attention to
-differences between HTTP versions).
-- Your HTTP response status codes must be accurate.
-- Your server must have default error pages if none are provided.
-- You can’t use fork for anything other than CGI (like PHP, or Python, and so forth).
-- You must be able to serve a fully static website.
-- Clients must be able to upload files.
-- You need at least the GET, POST, and DELETE methods.Stress test your server to ensure it remains available at all times.
-- Your server must be able to listen to multiple ports to deliver different content (see Configuration file).
+
+Integration checks (require a running server):
+
+```bash
+./webserv www/test/test.conf &
+python3 www/test/vhost_test.py     # virtual-host behaviour
+python3 www/test/chunked_test.py   # chunked upload behaviour
 ```
-### Configuration File
+
+`tests/dos.py` is a small stress script to verify availability under load.
+
+## Configuration
+
+### File format
+
+The configuration uses nginx-like blocks and is parsed by `ConfigReader` / `WebserverSettings`:
+
+- The file consists of one or more `server { ... }` blocks; each may contain any number of `location <path> { ... }` sub-blocks.
+- `#` starts a comment; keywords are case-insensitive; values are whitespace-trimmed.
+- The trailing `;` after a value is accepted but optional.
+- Unknown directives produce a warning on stdout but do not abort startup.
+- Any directive that fails validation aborts startup — a partially broken config is rejected as a whole.
+
+### Writing your first config
+
+Save the following as `myserver.conf` and start it with `./webserv myserver.conf`:
+
+```nginx
+server {
+    listen 8080;                        # port only -> binds 0.0.0.0
+    server_name localhost;
+    root www;                           # document root for this site
+    index index.html;                   # served when a directory is requested
+    dirindex off;
+
+    location / {
+        # inherits everything from the server block
+    }
+
+    location /upload {
+        upload_dir www/uploads;         # POST /upload/<name> writes here
+        methods post delete;
+    }
+
+    location /scripts {
+        cgi .py /usr/bin/python3;       # *.py below /scripts runs as CGI
+    }
+}
+
+# Second site on the SAME port - selected by Host header.
+# Also the fallback for names that match no other block on this socket.
+server {
+    listen 8080 default_server;
+    server_name api.example.com;
+    root www/site2;
+}
+
+# Separate admin port with stricter limits.
+server {
+    listen 127.0.0.1:8081;
+    root /srv/admin;
+    max_body_size 10485760;             # 10 MB
+    max_header_size 8192;               # 8 KB
+    error_page 404 /errors/404.html;
+}
 ```
-In the configuration file, you should be able to:
-• Define all the interface:port pairs on which your server will listen to (defining multiple websites served by your program).
-• Set up default error pages.
-• Set the maximum allowed size for client request bodies.
-• Specify rules or configurations on a URL/route (no regex required here), for a
-website, among the following:
-◦ List of accepted HTTP methods for the route.
-◦ HTTP redirection.
-◦ Directory where the requested file should be located (e.g., if URL /kapouet
-is rooted to /tmp/www, URL /kapouet/pouic/toto/pouet will search for
-/tmp/www/pouic/toto/pouet).
-◦ Enabling or disabling directory listing.
-◦ Default file to serve when the requested resource is a directory.
-◦ Uploading files from the clients to the server is authorized, and storage location
-is provided.
-10
-Webserv This is when you finally understand why URLs start with HTTP
-◦ Execution of CGI, based on file extension (for example .php). Here are some
-specific remarks regarding CGIs:
-∗ Do you wonder what a CGI is?
-∗ Have a careful look at the environment variables involved in the web
-server-CGI communication. The full request and arguments provided by
-the client must be available to the CGI.
-∗ Just remember that, for chunked requests, your server needs to un-chunk
-them, the CGI will expect EOF as the end of the body.
-∗ The same applies to the output of the CGI. If no content_length is
-returned from the CGI, EOF will mark the end of the returned data.
-∗ The CGI should be run in the correct directory for relative path file access.
-∗ Your server should support at least one CGI (php-CGI, Python, and so
-forth).
-You must provide configuration files and default files to test and demonstrate that
-every feature works during the evaluation.
-You can have other rules or configuration information in your file (e.g., a server name
-for a website if you plan to implement virtual hosts).
-```
-### Readme
-```
-A README.md file must be provided at the root of your Git repository. Its purpose is
-to allow anyone unfamiliar with the project (peers, staff, recruiters, etc.) to quickly
-understand what the project is about, how to run it, and where to find more information
-on the topic.
-The README.md must include at least:
-• The very first line must be italicized and read: This project has been created as part
-of the 42 curriculum by <login1>[, <login2>[, <login3>[...]]].
-• A “Description” section that clearly presents the project, including its goal and a
-brief overview.
-• An “Instructions” section containing any relevant information about compilation,
-installation, and/or execution.
-• A “Resources” section listing classic references related to the topic (documentation, articles, tutorials, etc.), as well as a description of how AI was used —
-specifying for which tasks and which parts of the project.
-➠ Additional sections may be required depending on the project (e.g., usage
-examples, feature list, technical choices, etc.).
-Any required additions will be explicitly listed below.
-```
+
+### Directive reference
+
+| Directive              | Scope            | Example                                                                           | Default           | Behaviour                                                                                                                                                        |
+| ---------------------- | ---------------- | --------------------------------------------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `listen`               | server           | `listen 127.0.0.1:8080;`                                                          | address `0.0.0.0` | `<[address:]port>`; repeatable. Sockets shared by identical `address:port` are created only once. Only one block per socket may carry the `default_server` flag. |
+| `server_name`          | server           | `server_name example.com api.example.com;`                                        | —                 | Whitespace-separated list; matched case-insensitively against the `Host` header (port stripped).                                                                 |
+| `root`                 | server, location | `root www/site1;`                                                                 | —                 | Document root; a location value overrides the server value.                                                                                                      |
+| `index`                | server, location | `index index.html;`                                                               | `index.html`      | File appended for directory requests.                                                                                                                            |
+| `dirindex`             | server, location | `dirindex on;`                                                                    | off               | `on`/`true` enables HTML directory listings.                                                                                                                     |
+| `methods`              | server, location | `methods get post delete;`                                                        | all allowed       | Lowercase method names; absent or empty means every method is permitted.                                                                                         |
+| `redirect`             | server, location | `redirect https://example.org/new;`                                               | —                 | Matching requests are answered with `301` + `Location`.                                                                                                          |
+| `error_page`           | server, location | `error_page 404 /errors/404.html;`                                                | built-in pages    | Repeatable; path resolved against the effective root.                                                                                                            |
+| `max_body_size`        | server           | `max_body_size 10485760;`                                                         | `1000000` (1 MB)  | Larger request bodies are rejected with `413`.                                                                                                                   |
+| `max_header_size`      | server           | `max_header_size 8192;`                                                           | `16384` (16 KB)   | Oversized header blocks are rejected with `431`.                                                                                                                 |
+| `upload_dir`           | server, location | `upload_dir www/uploads;`                                                         | —                 | Required for `POST`; without it uploads answer `403`.                                                                                                            |
+| `missing_content_type` | server, location | `missing_content_type reject;` · `missing_content_type default application/json;` | `reject`          | Controls POST bodies lacking `Content-Type`: reject with `400`, or synthesize the given type.                                                                    |
+| `cgi`                  | server, location | `cgi .py /usr/bin/python3;`                                                       | —                 | `<extension> <interpreter>`; repeatable. Drives CGI dispatch by URL extension.                                                                                   |
+| `max_cgi_output`       | server, location | `max_cgi_output 2000000;`                                                         | `2000000`         | Reserved CGI output cap.                                                                                                                                         |
 
 ## Architecture
 
-A central class for the App. It takes as an argument the configuration file.
-It start then the server, and has a loop to listen for incoming connections.
-I would follow the HttpServer from [Python3](https://github.com/python/cpython/blob/main/Lib/http/server.py)
+### Components
 
-## Python3 http.server architecture
+| Component                                                  | Responsibility                                                                                                                                                    |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `main.cpp`                                                 | Argument check (`.conf`), constructs `Webserver`, runs it.                                                                                                        |
+| `Webserver`                                                | Loads the config, creates listen sockets, owns the main loop, handles shutdown signals.                                                                           |
+| `PollHandler`                                              | Meyers singleton around the single `poll()`; subscribe/unsubscribe read/write/close callbacks per fd.                                                             |
+| `ConnectionManager`                                        | Per-connection state machine (`READING → PROCESSING → WRITING → CLOSED`): accept, buffering, body framing, dispatch to handlers, response writing, timeout sweep. |
+| `ConfigReader` / `WebserverSettings`                       | Parse `.conf` text into validated settings structs (server blocks + locations).                                                                                   |
+| `Request` / `URL`                                          | HTTP message parsing; URL validation, query-string and file-extension extraction.                                                                                 |
+| `HttpResponse` / `HttpStatusReason` / `StandardErrorPages` | Response serialization (status line, headers, auto `Content-Length`/`Date`), reason phrases, default error pages, directory listing HTML.                         |
+| `CGIHandler`                                               | CGI environment setup, `fork`/`execve`, non-blocking pipe draining, async child reaping via `signalfd`.                                                           |
+| `Chunked`                                                  | Incremental chunked-body decoder.                                                                                                                                 |
+| `PathUtils`                                                | Lexical path safety: query stripping, dot-segment rejection, resolving paths strictly under a root/upload dir.                                                    |
 
-### Class and input overview
+### Connection accepting
 
-- `socketserver.BaseServer`
-    - Inputs: `server_address`, `RequestHandlerClass`
-    - Role: Core server loop, request dispatching.
-- `socketserver.TCPServer`
-    - Inputs: `server_address`, `RequestHandlerClass`, `bind_and_activate=True`
-    - Role: TCP socket setup and accept loop.
-- `http.server.HTTPServer`
-    - Subclass of `socketserver.TCPServer`
-    - Inputs: `server_address`, `RequestHandlerClass`
-    - Role: HTTP-specific server (supports address reuse by default).
-- `http.server.ThreadingHTTPServer`
-    - Subclass of `HTTPServer` + `socketserver.ThreadingMixIn`
-    - Inputs: `server_address`, `RequestHandlerClass`
-    - Role: One thread per request.
-- `socketserver.BaseRequestHandler`
-    - Input: `request`, `client_address`, `server`
-    - Role: Per-connection handler base.
-- `socketserver.StreamRequestHandler`
-    - Subclass of `BaseRequestHandler`
-    - Input: `rbufsize`, `wbufsize`
-    - Role: File-like `rfile`/`wfile` for stream I/O.
-- `http.server.BaseHTTPRequestHandler`
-    - Subclass of `StreamRequestHandler`
-    - Inputs: parsed request line, headers
-    - Role: Parses HTTP, dispatches to `do_*`.
-- `http.server.SimpleHTTPRequestHandler`
-    - Subclass of `BaseHTTPRequestHandler`
-    - Inputs: `directory` (optional)
-    - Role: Serves files, directory listing.
-- `http.server.CGIHTTPRequestHandler`
-    - Subclass of `SimpleHTTPRequestHandler`
-    - Inputs: `cgi_directories`
-    - Role: Runs CGI scripts.
-
-### Mermaid diagram (connections and data flow)
+At startup every unique `address:port` gets exactly one non-blocking listen socket, shared by all `server` blocks that reference it. The block marked `default_server` is remembered first among the candidates for that socket (a second `default_server` on the same socket aborts startup). Each socket is subscribed for readability; whenever it becomes readable, one connection is accepted and registered with the poller.
 
 ```mermaid
 flowchart TD
-    A[Client TCP connection] --> B[TCPServer accept]
-    B --> C[HTTPServer or ThreadingHTTPServer]
-        C --> D[RequestHandlerClass]
-        D --> E[BaseHTTPRequestHandler]
-        E --> F{Method?}
-        F -->|GET/POST/DELETE/HEAD| G[SimpleHTTPRequestHandler]
-        F -->|CGI path| H[CGIHTTPRequestHandler]
-        F -->|Custom| I[User Handler Subclass]
-        E --> J[send_response / headers / body]
-        J --> K[Client response]
+    S["./webserv config.conf"] --> CFG["ConfigReader parses all server blocks"]
+    CFG --> SETUP["setupListenSockets()"]
+    SETUP --> NEW{"address:port bound yet?"}
+    NEW -- "no" --> CREATE["createListenSocket():<br/>socket(AF_INET, SOCK_STREAM) → SO_REUSEADDR → bind → listen(SOMAXCONN)<br/>fcntl(O_NONBLOCK, O_CLOEXEC)"]
+    NEW -- "yes" --> REUSE["reuse existing listen fd"]
+    CREATE --> REG["m_socket_settings[fd] = all blocks listening here<br/>default_server block stored first"]
+    REUSE --> REG
+    REG --> SUB["PollHandler::subscribe_read(fd, accept callback)"]
+    SUB --> LOOP["Event loop: PollHandler::checkFDs()<br/>single poll(), ~3 s timeout"]
 
-        subgraph Request Handler Inheritance
-                D --> L[BaseRequestHandler]
-                L --> M[StreamRequestHandler]
-                M --> E
-        end
+    LOOP -->|"listen fd readable"| ACC["acceptConnection(listen_fd, candidates)<br/>accept(); tolerates EAGAIN/EINTR"]
+    ACC --> NB["set O_NONBLOCK on client fd"]
+    NB --> STORE["add Connection (state = READING) to m_connections"]
+    STORE --> CSUB["subscribe_read(client_fd, onClose, onReadable)"]
+    CSUB --> LOOP
 
-        subgraph Server Inheritance
-                N[BaseServer] --> O[TCPServer]
-                O --> C
-                P[ThreadingMixIn] --> C
-        end
+    LOOP -->|"each iteration"| TO["checkTimeouts(60 s): close idle connections"]
 ```
 
-### Mermaid diagram (GET static file call chain)
+### Request flow
+
+Everything below happens inside the single event loop. Reads append into a per-connection buffer until the request is completely framed; only then is it parsed and dispatched. Responses are buffered and flushed on writability, so no call ever blocks.
 
 ```mermaid
 flowchart TD
-    A[Client GET request] --> B[HTTPServer]
-    B --> C[RequestHandlerClass instance]
-    C --> D[BaseHTTPRequestHandler handle one request]
-    D --> E[do GET]
-    E --> F[SimpleHTTPRequestHandler send head]
-    F --> G[translate path]
-    G --> H[open file]
-    H --> I[send response and headers]
-    I --> J[copy file to output]
-    J --> K[Client response]
+    REQ["1. Request Construction<br/>Request::fromString()"] --> CONF["2. Config Match<br/>resolveSettings() & matchLocation()"]
+    
+    CONF --> RED{"Redirect configured?"}
+    RED -- "yes" --> R301["301 Redirect"]
+    RED -- "no" --> CHK_M{"Method allowed?"}
+    
+    CHK_M -- "no" --> R405["405 Method Not Allowed"]
+    CHK_M -- "yes" --> CGI{"3. CGI Check<br/>Extension matched?"}
+    
+    CGI -- "yes" --> RUN_CGI["CGIHandler<br/>fork & execve interpreter"]
+    CGI -- "no" --> METH{"4. Method Handling"}
+    
+    METH -- "GET" --> H_GET["Serve static file / autoindex"]
+    METH -- "POST" --> H_POST["Save upload to upload_dir"]
+    METH -- "DELETE" --> H_DEL["Delete target file"]
+    
+    R301 --> RESP["Send Response<br/>sendResponse()"]
+    R405 --> RESP
+    RUN_CGI --> RESP
+    H_GET --> RESP
+    H_POST --> RESP
+    H_DEL --> RESP
 ```
 
-### Mermaid diagram (CGI request call chain)
+## Project layout
 
-```mermaid
-flowchart TD
-    A[Client HTTP request] --> B[HTTPServer]
-    B --> C[RequestHandlerClass instance]
-    C --> D[BaseHTTPRequestHandler handle one request]
-    D --> E[CGIHTTPRequestHandler do request]
-    E --> F[parse path and query]
-    F --> G[build CGI env]
-    G --> H[spawn CGI process]
-    H --> I[pipe request body]
-    H --> J[read CGI stdout]
-    J --> K[send response and headers]
-    K --> L[Client response]
 ```
+include/   headers
+src/       sources
+tests/     unit tests + tests/sample_cfg/ config fixtures
+docs/      design notes (see docs/POST-Handling.md)
+www/       demo sites, vhost roots and integration test kit (www/test/)
+test.conf  minimal example configuration
+Makefile   build + test targets
+```
+
+## Resources
+
+- [RFC 9110 — HTTP Semantics](https://httpwg.org/specs/rfc9110.html)
+- [RFC 9112 — HTTP/1.1](https://httpwg.org/specs/rfc9112.html)
+- [MDN Web Docs — HTTP](https://developer.mozilla.org/en-US/docs/Web/HTTP)
+- [nginx documentation](https://nginx.org/en/docs/) — reference for configuration style and routing/vhost behaviour
+
+## Further Infos, not implemented:
+
+- [The ultimate SO_LINGER page, or: why is my tcp not reliable](https://blog.netherlabs.nl/articles/2009/01/18/the-ultimate-so_linger-page-or-why-is-my-tcp-not-reliable)
+
+### AI usage
+
+AI assistants were used during this project as development aids for: discussing architecture and HTTP protocol edge cases (e.g. request-smuggling defence, chunked framing), generating initial drafts of unit tests, and writing/refining documentation including this README. All implementation code was written, reviewed and debugged by the team, and every final decision was made manually.
