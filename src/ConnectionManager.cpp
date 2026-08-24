@@ -1124,6 +1124,6 @@ void ConnectionManager::checkTimeouts(int timeout_seconds)
         }
         else
             ++it;
-        deleteExpiredSessions();
     }
+    deleteExpiredSessions();
 }

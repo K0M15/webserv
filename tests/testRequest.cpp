@@ -47,7 +47,7 @@ static void test_cookie_whitespace_variants() {
         "Cookie:   session_id=xyz789 ;   user=john;  theme=light\r\n"
         "\r\n";
     Request req = Request::fromString(raw);
-    check("whitespace variants: session_id with leading spaces", req.getCookie("session_id") == "xyz789 ");
+    check("whitespace variants: session_id with leading spaces", req.getCookie("session_id") == "xyz789");
     check("whitespace variants: user with leading space after semicolon", req.getCookie("user") == "john");
     check("whitespace variants: theme with spaces", req.getCookie("theme") == "light");
 }
