@@ -67,6 +67,10 @@ Request Request::fromString(const std::string& rawRequest)
         std::stringstream ss(line);
         if (!(ss >> req.method >> req.url >> req.version))
             throw std::runtime_error("Malformed request line");
+        if (req.version != "HTTP/1.1")
+            throw HTTPVersionNotSupportedException("HTTP/1.1 required");
+        if (req.method != "GET" && req.method != "POST" && req.method != "DELETE")
+            throw HTTPMethodNotAllowedException("Method not supported");
     }
     //parse headers, last line is empty
     while (std::getline(stream, line) && line != "\r" && !line.empty())
@@ -87,6 +91,8 @@ Request Request::fromString(const std::string& rawRequest)
                 {
                     return std::tolower(c);
                 });
+            if (!req.headers[key].empty())
+                throw std::runtime_error("Duplicate header " + key);
             req.headers[key] = value;
         }
     }
