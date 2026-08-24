@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>Login test</title>
+    </head>
+    <body>
+        <h1>Login test</h1>
+
+        <form id="loginForm" onsubmit="doLogin(event)">
+            <input type="text" id="username" placeholder="username" required />
+            <input type="password" id="password" placeholder="password" required />
+            <button type="submit">Log in</button>
+        </form>
+
+        <button onclick="doLogout()">Log out</button>
+
+        <pre id="status"></pre>
+
+        <script>
+            async function doLogin(event)
+            {
+                event.preventDefault();
+
+                const username = document.getElementById("username").value;
+                const password = document.getElementById("password").value;
+                const body = "username=" + encodeURIComponent(username) +
+                             "&password=" + encodeURIComponent(password);
+
+                const response = await fetch("/login",
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: body
+                });
+
+                const text = await response.text();
+                document.getElementById("status").textContent =
+                    response.status + " " + response.statusText + "\n" + text;
+            }
+
+            async function doLogout()
+            {
+                const response = await fetch("/logout", { method: "POST" });
+                const text = await response.text();
+                document.getElementById("status").textContent =
+                    response.status + " " + response.statusText + "\n" + text;
+            }
+        </script>
+    </body>
+</html>
