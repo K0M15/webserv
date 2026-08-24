@@ -41,7 +41,7 @@ ConnectionManager::~ConnectionManager()
     }
     m_connections.clear();
 }
-
+#pragma region CONNECTION
 void ConnectionManager::acceptConnection(int listen_fd, const std::vector<const WebserverSettings*>& candidates)
 {
     sockaddr_in client_addr;
@@ -97,16 +97,22 @@ void ConnectionManager::onReadable(int fd)
     conn.last_active = std::time(nullptr);
     conn.read_buffer.append(buf, static_cast<size_t>(n));
 
-    // Header flooding guard: while the header block is incomplete, bound how
-    // much we are willing to buffer. Body limits are enforced per-frame in
-    // isRequestComplete() so chunked framing overhead is not penalised.
-    if (conn.settings && !conn.headers_complete &&
-        conn.read_buffer.size() > conn.settings->max_header_size + 16384)
+    // Header flooding guard: bound the size of the header block itself
+    // (everything up to and including the final CRLFCRLF, or the whole
+    // buffer if that terminator hasn't arrived yet). Body limits are
+    // enforced separately, per-frame, in isRequestComplete().
+    if (conn.settings && !conn.headers_complete)
     {
-        HttpResponse resp = errorResponse(400, conn.settings, nullptr);
-        resp.setKeepAlive(false);
-        sendResponse(conn, resp);
-        return;
+        size_t header_end = conn.read_buffer.find("\r\n\r\n");
+        size_t header_len = (header_end != std::string::npos) ? header_end + 4 : conn.read_buffer.size();
+
+        if (header_len > conn.settings->max_header_size)
+        {
+            HttpResponse resp = errorResponse(431, conn.settings, nullptr);
+            resp.setKeepAlive(false);
+            sendResponse(conn, resp);
+            return;
+        }
     }
 
     RequestReadState state = isRequestComplete(conn);
@@ -195,7 +201,9 @@ void ConnectionManager::closeConnection(int fd)
 {
     onClose(fd);
 }
+#pragma endregion
 
+#pragma region UTILS
 static bool iequals(const std::string& a, const std::string& b)
 {
     if (a.size() != b.size())
@@ -436,7 +444,9 @@ static const LocationConfig* matchLocation(const std::string& url_path,
     }
     return matched;
 }
+#pragma endregion
 
+#pragma region HANDLING_REQUESTS
 void ConnectionManager::handleRequestFD(int fd)
 {
     auto it = m_connections.find(fd);
@@ -450,9 +460,23 @@ void ConnectionManager::handleRequestFD(int fd)
         Request req = Request::fromString(conn.read_buffer);
         handleRequest(conn, req);
     }
-    catch (const std::exception& e)
+    catch (const std::runtime_error& e)
     {
         HttpResponse resp = errorResponse(400, conn.settings, nullptr);
+        resp.setKeepAlive(false);
+        conn.keep_alive = false;
+        sendResponse(conn, resp);
+    }
+    catch (const Request::HTTPVersionNotSupportedException& e)
+    {
+        HttpResponse resp = errorResponse(505, conn.settings, nullptr);
+        resp.setKeepAlive(false);
+        conn.keep_alive = false;
+        sendResponse(conn, resp);
+    }
+    catch (const Request::HTTPMethodNotAllowedException& e)
+    {
+        HttpResponse resp = errorResponse(405, conn.settings, nullptr);
         resp.setKeepAlive(false);
         conn.keep_alive = false;
         sendResponse(conn, resp);
@@ -847,7 +871,9 @@ const WebserverSettings* ConnectionManager::resolveSettings(Connection& conn, co
     }
     return conn.candidates[0]; // for now default
 }
+#pragma endregion
 
+#pragma region SENDING_RESPONSE
 
 void ConnectionManager::sendResponse(Connection& conn, const HttpResponse& response)
 {
@@ -883,3 +909,4 @@ void ConnectionManager::checkTimeouts(int timeout_seconds)
         }
     }
 }
+#pragma endregion
