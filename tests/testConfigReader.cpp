@@ -34,9 +34,10 @@ static bool hasName(const WebserverSettings& ws, const std::string& name) {
 
 static void test_single_server() {
     ConfigReader reader("tests/sample_cfg/single_url.config");
-    check("single: 1 server block", reader.blocks.size() == 1u);
+    const auto& blocks = reader.getAllServers();
+    check("single: 1 server block", blocks.size() == 1u);
 
-    const WebserverSettings* ws = reader.blocks[0].get();
+    const WebserverSettings* ws = blocks[0].get();
     check("single: 1 listen entry", ws->listen.size() == 1u);
     check("single: listen port 4000", ws->listen[0].port == 4000);
     check("single: root is /", ws->root == "/");
@@ -49,9 +50,10 @@ static void test_single_server() {
 
 static void test_multi_server() {
     ConfigReader reader("tests/sample_cfg/multi_server.config");
-    check("multi: 2 server blocks kept", reader.blocks.size() == 2u);
-
-    const WebserverSettings* site1 = reader.blocks[0].get();
+    const auto& blocks = reader.getAllServers();          // was: reader.blocks
+    check("multi: 2 server blocks kept", blocks.size() == 2u);
+    
+    const WebserverSettings* site1 = blocks[0].get();
     check("multi: block 1 listen port 4000", site1->listen[0].port == 4000);
     check("multi: block 1 root /var/www/site1", site1->root == "/var/www/site1");
     check("multi: block 1 index index.html", site1->index == "index.html");
@@ -61,7 +63,7 @@ static void test_multi_server() {
     check("multi: block 1 location / root",
         site1->locations.at("/").root == "/var/www/site1");
 
-    const WebserverSettings* site2 = reader.blocks[1].get();
+    const WebserverSettings* site2 = blocks[1].get();
     check("multi: block 2 listen port 5000", site2->listen[0].port == 5000);
     check("multi: block 2 root /var/www/site2", site2->root == "/var/www/site2");
     check("multi: block 2 index index.php", site2->index == "index.php");
@@ -85,9 +87,9 @@ static void test_multi_server() {
 
     // vhosts index maps every server_name to its owning block
     check("multi: vhosts example.com -> block 1",
-        reader.vhosts.at("example.com") == site1);
+        reader.getSettings("example.com") == site1);
     check("multi: vhosts api.example.com -> block 2",
-        reader.vhosts.at("api.example.com") == site2);
+        reader.getSettings("api.example.com") == site2);
 }
 
 int main(int argc, char** argv) {
