@@ -22,6 +22,10 @@
 # define DEFAULT_MAX_HEADER_SIZE 16384UL
 #endif
 
+#ifndef DEFAULT_PORT
+# define DEFAULT_PORT 8080
+#endif
+
 typedef enum {
     GET = 0,
     HEAD,
