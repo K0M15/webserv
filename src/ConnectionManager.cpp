@@ -9,7 +9,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <cerrno>
 #include <cstring>
 #include <fstream>
 #include <sstream>
@@ -235,13 +234,19 @@ void ConnectionManager::acceptConnection(int listen_fd, const std::vector<const 
     int client_fd = accept(listen_fd, reinterpret_cast<sockaddr *>(&client_addr), &len);
     if (client_fd < 0)
     {
-        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
-            return;
-        std::cerr << "accept() error: " << std::strerror(errno) << std::endl;
+        std::cerr << "accept() error: error accepting new connection" << std::endl;
         return;
     }
-    if (fcntl(client_fd, F_SETFL, O_NONBLOCK) < 0)
+    int flags = fcntl(client_fd, F_GETFD);
+    if (fcntl(client_fd, F_SETFD, flags | FD_CLOEXEC) == -1) {
+        std::cerr << "accept() error: setting file descriptor close-on-exec flags" << std::endl;
+        ::close(client_fd);
+        return;
+    }
+    flags = fcntl(client_fd, F_GETFL);
+    if (fcntl(client_fd, F_SETFL, O_NONBLOCK) == -1)
     {
+        std::cerr << "accept() error: setting file descriptor non-blocking flags" << std::endl;
         ::close(client_fd);
         return;
     }
@@ -272,8 +277,7 @@ void ConnectionManager::onReadable(int fd)
     }
     if (n < 0)
     {
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
-            return;
+        std::cerr << "read() error: error reading from socket" << std::endl;
         onClose(fd);
         return;
     }
