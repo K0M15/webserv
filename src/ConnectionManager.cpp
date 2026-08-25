@@ -425,6 +425,7 @@ static std::string headerFieldValue(const std::string &lower_haystack, const std
 
 RequestReadState ConnectionManager::isRequestComplete(Connection &conn)
 {
+    //TODO: add 100-continue and expect header.
     if (!conn.headers_complete)
     {
         size_t header_end = conn.read_buffer.find("\r\n\r\n");
@@ -783,6 +784,14 @@ void ConnectionManager::handleRequest(Connection &conn, const Request &req)
             if (handleRole(conn, req, location, "admin"))
                 handleDelete(conn, root, url_path, location);
             break;
+        case PUT:
+            if (handleRole(conn, req, location, "admin"))
+                handlePut(conn, root, req,url_path, location);
+            break;
+        case PATCH:
+            if (handleRole(conn, req, location, "admin"))
+                handlePatch(conn, root, url_path, location);
+            break;
         case OPTIONS:
         {
             const std::vector<Method> &allowed = (location && !location->methods.empty())
@@ -1071,11 +1080,64 @@ void ConnectionManager::handleOptions(Connection &conn,
                             ? std::string("GET, HEAD, POST, OPTIONS, DELETE")
                             : buildAllowHeader(allowed);
 
-    HttpResponse resp;
-    resp.setStatus(204);
-    resp.addHeader("Allow", allow);
-    resp.addHeader("Content-Length", "0");
-    sendResponse(conn, resp);
+    sendResponse(conn, HttpResponse::error(204));
+}
+
+void ConnectionManager::handlePut(Connection &conn, const std::string &root,
+                                 const Request &req,
+                                 const std::string &url_path,
+                                 const LocationConfig *location)
+{
+    std::string path;
+    if (PathUtils::resolveUnder(root, url_path, "", path) != PathUtils::RESOLVE_OK)
+    {
+        sendResponse(conn, errorResponse(403, conn.settings, location));
+        return;
+    }
+
+    std::ofstream outfile(path, std::ios::binary);
+    if (!outfile.good())
+    {
+        sendResponse(conn, errorResponse(500, conn.settings, location));
+        return;
+    }
+    outfile.write(req.getBody().data(), req.getBody().size());
+    outfile.close();
+    if (!outfile.good())
+    {
+        std::remove(path.c_str());
+        sendResponse(conn, errorResponse(500, conn.settings, location));
+        return;
+    }
+    sendResponse(conn, HttpResponse::error(201));
+}
+
+void ConnectionManager::handlePatch(Connection &conn, const std::string &root,
+                                 const std::string &url_path,
+                                 const LocationConfig *location)
+{
+    std::string path;
+    if (PathUtils::resolveUnder(root, url_path, "", path) != PathUtils::RESOLVE_OK)
+    {
+        sendResponse(conn, errorResponse(403, conn.settings, location));
+        return;
+    }
+
+    std::ofstream outfile(path, std::ios::binary);
+    if (!outfile.good())
+    {
+        sendResponse(conn, errorResponse(500, conn.settings, location));
+        return;
+    }
+    outfile.write(conn.read_buffer.data(), conn.read_buffer.size());
+    outfile.close();
+    if (!outfile.good())
+    {
+        std::remove(path.c_str());
+        sendResponse(conn, errorResponse(500, conn.settings, location));
+        return;
+    }
+    sendResponse(conn, HttpResponse::error(204));
 }
 
 bool ConnectionManager::tryRedirect(Connection &conn, const LocationConfig *location)

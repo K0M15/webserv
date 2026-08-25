@@ -54,6 +54,7 @@ private:
     void    handleRequestFD(int fd);
     void    handleRequest(Connection& conn, const Request& req);
 
+
     bool    tryCGI(int fd, const std::string& filePath,
                    const std::string& interpreter, const Request& req);
     void    onCGIComplete(int fd);
@@ -68,6 +69,13 @@ private:
     void    handleDelete(Connection& conn, const std::string& root,
                         const std::string& url_path, const LocationConfig* location);
     void    handleOptions(Connection& conn, const std::vector<Method>& allowed);
+    void    handlePut(Connection& conn, const std::string& root,
+                        const Request &req,
+                        const std::string& url_path,
+                        const LocationConfig* location);
+    void    handlePatch(Connection& conn, const std::string& root,
+                        const std::string& url_path,
+                        const LocationConfig* location);
 
     bool    handleRole(Connection& conn, const Request& req, const LocationConfig* location, const std::string& requiredRole);
 
