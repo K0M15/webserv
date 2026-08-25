@@ -105,6 +105,9 @@ tests: testRequest testURL testChunked testPollHandler testConfigReader testHttp
 	./bin/testWebserverSettings
 	./bin/testCGI
 
+debug:
+	@$(MAKE) --no-print-directory re CXXFLAGS="$(CXXFLAGS) -DDEBUG"
+
 re: fclean all
 
-.PHONY: all clean fclean re testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI tests
+.PHONY: all clean fclean re testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI tests debug

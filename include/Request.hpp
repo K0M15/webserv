@@ -22,6 +22,24 @@ private:
     Request() : chunked(false) {}
     
 public:
+    class HTTPVersionNotSupportedException : public std::exception {
+    private:
+        std::string _reason;
+    public:
+        HTTPVersionNotSupportedException(const std::string& reason) : _reason(reason) {}
+        const char* what() const noexcept override {
+            return this->_reason.c_str();
+        }
+    };
+    class HTTPMethodNotAllowedException : public std::exception {
+    private:
+        std::string _reason;
+    public:
+        HTTPMethodNotAllowedException(const std::string& reason) : _reason(reason) {}
+        const char* what() const noexcept override {
+            return this->_reason.c_str();
+        }
+    };
     ~Request() = default;
     Request(const Request& other) = default;
     Request& operator=(const Request& other);
@@ -29,22 +47,9 @@ public:
     const std::string& getMethod() const { return method; }
     const std::string& getBody() const { return body; }
     bool isChunked() const { return chunked; }
-    const std::string& getHeader(const std::string& key) const {
-        // fromString() stores header keys lowercased, so lookups must
-        // lowercase the key too, or e.g. getHeader("Content-Type") never matches.
-        std::string lower_key = key;
-        std::transform(lower_key.begin(), lower_key.end(), lower_key.begin(), [](unsigned char c)
-            {
-                return std::tolower(c);
-            });
-        std::map<std::string, std::string>::const_iterator it = headers.find(lower_key);
-        if (it != headers.end()) {
-            return it->second;
-        }
-        static const std::string empty;
-        return empty;
-    }
+    const std::string& getHeader(const std::string& key) const;
     const URL& getURL() const { return url; }
     const std::string getVersion() const { return version; }
     const std::map<std::string, std::string>& getHeaders() const { return headers; }
+    std::string getCookie(const std::string& name) const;
 };

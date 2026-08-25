@@ -1,6 +1,7 @@
 #include "Webserver.hpp"
 #include <iostream>
 #include <algorithm>
+#include "InMemoryDB.hpp"
 
 /**
  * Included Additional parsing could be done to ensure the file contents are also valid.
@@ -15,6 +16,18 @@ static void doesFileHaveCorrectExtension(char **argv)
         throw std::runtime_error("Argument must be a valid .conf file");
 }
 
+static void loginTempDebugTest()
+{
+    InMemoryDB<std::string, std::string> testDb;
+    testDb.set("user:101", "Alice");
+    if (auto val = testDb.get("user:101"); val)
+    {
+    std::cout << "InMemoryDB test: found " << *val << std::endl;
+    }
+    testDb.del("user:101");
+    std::cout << "InMemoryDB test: exists after delete = " << testDb.exists("user:101") << std::endl;
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2)
@@ -22,6 +35,7 @@ int main(int argc, char **argv)
         std::cerr << "Usage: ./webserv <config_file>" << std::endl;
         return 1;
     }
+    loginTempDebugTest();
     try
     {
         doesFileHaveCorrectExtension(argv);
