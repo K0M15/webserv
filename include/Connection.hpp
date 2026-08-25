@@ -27,6 +27,7 @@ struct Connection {
     size_t              content_length;
     size_t              header_end;
     bool                chunked;
+    bool                sent_100_continue;
 
     std::string         response_buffer;
     size_t              bytes_sent;

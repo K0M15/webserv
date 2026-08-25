@@ -197,8 +197,8 @@ bool    ConnectionManager::handleRole(Connection& conn, const Request& req, cons
 Connection::Connection(int fd, const sockaddr_in &a, const std::vector<const WebserverSettings *> candidates)
     : fd(fd), addr(a), state(READING),
       headers_complete(false), content_length(0),
-      header_end(0), chunked(false),
-      bytes_sent(0), keep_alive(false),
+      header_end(0), chunked(false), sent_100_continue(false),
+      bytes_sent(0), keep_alive(true),
       last_active(std::time(nullptr)),
       settings(candidates.empty() ? nullptr : candidates.front()),
       candidates(candidates) {}
@@ -360,14 +360,26 @@ void ConnectionManager::onWritable(int fd)
     {
         if (conn.keep_alive)
         {
+            size_t consumed = conn.header_end + 4 + conn.content_length;
+            if (conn.read_buffer.size() >= consumed)
+                conn.read_buffer.erase(0, consumed);
+            else
+                conn.read_buffer.clear();
+
             conn.state = READING;
-            conn.read_buffer.clear();
             conn.response_buffer.clear();
             conn.bytes_sent = 0;
             conn.headers_complete = false;
             conn.content_length = 0;
             conn.header_end = 0;
             conn.chunked = false;
+            conn.sent_100_continue = false;
+
+            if (!conn.read_buffer.empty() && isRequestComplete(conn) == RequestReadState::COMPLETE)
+            {
+                handleRequestFD(conn.fd);
+                return;
+            }
 
             auto &poll = PollHandler::getInstance();
             poll.subscribe_read(conn.fd, [this, fd]()
@@ -739,11 +751,11 @@ void ConnectionManager::handleRequestFD(int fd)
 
 void ConnectionManager::handleRequest(Connection &conn, const Request &req)
 {
-    const std::string keep_alive = req.getHeader("connection");
-    if (iequals(keep_alive, "keep-alive"))
-        conn.keep_alive = true;
-    
-
+    const std::string conn_hdr = req.getHeader("connection");
+    if (req.getVersion() == "HTTP/1.1")
+        conn.keep_alive = !iequals(conn_hdr, "close");
+    else
+        conn.keep_alive = iequals(conn_hdr, "keep-alive");
     conn.settings = resolveSettings(conn, req);
     Method m = parseMethod(req.getMethod());
     std::string url_path = req.getURL().str();
