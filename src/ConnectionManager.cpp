@@ -484,12 +484,18 @@ RequestReadState ConnectionManager::isRequestComplete(Connection &conn)
                 return RequestReadState::PAYLOAD_TOO_LARGE;
             }
             //check if readbuffer is already big enough to contain data:
-            if (conn.read_buffer.size() <= conn.header_end + 4 + conn.content_length)
+            if (conn.read_buffer.size() < conn.header_end + 4 + conn.content_length)
             {
                 PollHandler::getInstance().subscribe_write(conn.fd,
                     [this, fd = conn.fd](){ onClose(fd); },
-                    [fd = conn.fd](){
-                        write(fd, "100-continue", sizeof("100-continue"));
+                    [this, fd = conn.fd](){
+                        std::string msg = "HTTP/1.1 100 Continue\r\n\r\n";
+                        ::write(fd, msg.c_str(), msg.length());
+                        // workaround, unsubscribe and re-subscribe to continue normal operation
+                        PollHandler::getInstance().unsubscribe(fd);
+                        PollHandler::getInstance().subscribe_read(fd,
+                            [this, fd]() { onClose(fd); },
+                            [this, fd]() { onReadable(fd); });
                     }
                 );
             }
@@ -733,18 +739,11 @@ void ConnectionManager::handleRequestFD(int fd)
 
 void ConnectionManager::handleRequest(Connection &conn, const Request &req)
 {
-    const std::string keep_alive = req.getHeader("keep-alive");
-    if (!keep_alive.empty() && keep_alive == "true")
-    {
-        int optval = 1;
-        int idle = 60;
-        int interval = 10;
-        int count = 3;
-        setsockopt(conn.fd, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval));
-        setsockopt(conn.fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
-        setsockopt(conn.fd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
-        setsockopt(conn.fd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
-    }
+    const std::string keep_alive = req.getHeader("connection");
+    if (iequals(keep_alive, "keep-alive"))
+        conn.keep_alive = true;
+    
+
     conn.settings = resolveSettings(conn, req);
     Method m = parseMethod(req.getMethod());
     std::string url_path = req.getURL().str();
