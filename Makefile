@@ -14,7 +14,8 @@ SRCS =  src/main.cpp \
 		src/WebserverSettings.cpp \
 		src/CGIHandler.cpp \
 		src/PathUtils.cpp \
-		src/Chunked.cpp
+		src/Chunked.cpp \
+		src/URL.cpp
 
 OBJ_DIR = obj
 
@@ -29,7 +30,8 @@ OBJS =  obj/main.o \
 		obj/WebserverSettings.o \
 		obj/CGIHandler.o \
 		obj/PathUtils.o \
-		obj/Chunked.o
+		obj/Chunked.o \
+		obj/URL.o
 
 GREEN = \033[1;32m
 WHITE = \033[0m
@@ -66,13 +68,13 @@ fclean: clean
 	@rm -f $(NAME)
 
 testRequest: createTestDIR
-	$(CXX) $(CXXFLAGS) src/Request.cpp src/Chunked.cpp tests/testRequest.cpp -o bin/testRequest
+	$(CXX) $(CXXFLAGS) src/Request.cpp src/Chunked.cpp src/URL.cpp src/PathUtils.cpp tests/testRequest.cpp -o bin/testRequest
 
 testURL: createTestDIR
-	$(CXX) $(CXXFLAGS) tests/testURL.cpp -o bin/testURL
+	$(CXX) $(CXXFLAGS) src/URL.cpp src/PathUtils.cpp tests/testURL.cpp -o bin/testURL
 
 testChunked: createTestDIR
-	$(CXX) $(CXXFLAGS) src/Request.cpp src/Chunked.cpp tests/testChunked.cpp -o bin/testChunked
+	$(CXX) $(CXXFLAGS) src/Request.cpp src/Chunked.cpp src/URL.cpp src/PathUtils.cpp tests/testChunked.cpp -o bin/testChunked
 
 testPollHandler: createTestDIR
 	$(CXX) $(CXXFLAGS) src/PollHandler.cpp tests/testPollHandler.cpp -o bin/testPollHandler
@@ -90,7 +92,7 @@ testWebserverSettings: createTestDIR
 	$(CXX) $(CXXFLAGS) src/WebserverSettings.cpp tests/testWebserverSettings.cpp -o bin/testWebserverSettings
 
 testCGI: createTestDIR
-	$(CXX) $(CXXFLAGS) src/CGIHandler.cpp src/Request.cpp src/Chunked.cpp src/ConnectionManager.cpp src/PathUtils.cpp src/PollHandler.cpp src/HttpResponse.cpp src/HttpStatusReason.cpp tests/testCGI.cpp -o bin/testCGI
+	$(CXX) $(CXXFLAGS) src/CGIHandler.cpp src/Request.cpp src/Chunked.cpp src/ConnectionManager.cpp src/PathUtils.cpp src/PollHandler.cpp src/HttpResponse.cpp src/HttpStatusReason.cpp src/URL.cpp tests/testCGI.cpp -o bin/testCGI
 
 tests: testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI
 	./bin/testRequest tests/sample_request.txt
@@ -103,6 +105,9 @@ tests: testRequest testURL testChunked testPollHandler testConfigReader testHttp
 	./bin/testWebserverSettings
 	./bin/testCGI
 
+debug:
+	@$(MAKE) --no-print-directory re CXXFLAGS="$(CXXFLAGS) -DDEBUG"
+
 re: fclean all
 
-.PHONY: all clean fclean re testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI tests
+.PHONY: all clean fclean re testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI tests debug
