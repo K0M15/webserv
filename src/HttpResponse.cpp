@@ -56,7 +56,7 @@ std::string HttpResponse::toString() const
 {
     std::ostringstream oss;
 
-    oss << "HTTP/1.1 " << m_status << " " << HttpStatusReason::reason(m_status) << "\r\n";
+    oss << HTTP_VERSION << " " << m_status << " " << HttpStatusReason::reason(m_status) << "\r\n";
 
     if (m_headers.find("Content-Type") == m_headers.end() && !m_body.empty())
         oss << "Content-Type: text/html\r\n";
@@ -73,7 +73,7 @@ std::string HttpResponse::toString() const
         oss << "Date: " << httpDate(time(nullptr)) << "\r\n";
 
     if (m_headers.find("Server") == m_headers.end())
-        oss << "Server: " << APPLICATION_VERSION << "\r\n";
+        oss << "Server: " << APPLICATION_ID << "\r\n";
 
     oss << "\r\n";
 
