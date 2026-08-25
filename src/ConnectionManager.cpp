@@ -446,7 +446,7 @@ RequestReadState ConnectionManager::isRequestComplete(Connection &conn)
                        [](unsigned char c)
                        { return std::tolower(c); });
 
-        std::string expect_value = headerFieldValue(header_part, "Expect");
+        std::string expect_value = headerFieldValue(header_part, "expect");
         std::string cl_value = headerFieldValue(header_part, "content-length");
         std::string te_value = headerFieldValue(header_part, "transfer-encoding");
         
@@ -498,8 +498,8 @@ RequestReadState ConnectionManager::isRequestComplete(Connection &conn)
                             [this, fd]() { onReadable(fd); });
                     }
                 );
+                return RequestReadState::INCOMPLETE;
             }
-            return RequestReadState::INCOMPLETE;
         }
     }
 
