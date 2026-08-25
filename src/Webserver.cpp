@@ -87,9 +87,9 @@ int Webserver::createListenSocket(const ListenDirective& ld)
         return -1;
     }
     int flags = fcntl(fd, F_GETFD);
-    if (fcntl(fd, F_SETFD, flags | O_CLOEXEC) < 0)
+    if (fcntl(fd, F_SETFD, flags | FD_CLOEXEC) < 0)
     {
-        std::cerr << "fcntl(O_CLOSEXEC) failed: error setting listening socket file descriptor flags" << std::endl;
+        std::cerr << "fcntl(FD_CLOEXEC) failed: error setting listening socket file descriptor flags" << std::endl;
         ::close(fd);
         return -1;
     }

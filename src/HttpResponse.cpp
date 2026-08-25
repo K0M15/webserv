@@ -107,8 +107,17 @@ HttpResponse HttpResponse::error(unsigned int code)
 {
     HttpResponse resp;
     resp.setStatus(code);
-    resp.addHeader("Content-Type", "text/html");
-    resp.setBody(HtmlPages::construct_errorpage(code, HttpStatusReason::reason(code)));
+    switch (code)
+    {
+        case 204:{
+            resp.setBody("");
+            break;
+        }
+        default:{
+            resp.addHeader("Content-Type", "text/html");
+            resp.setBody(HtmlPages::construct_errorpage(code, HttpStatusReason::reason(code)));
+        }
+    }
     return resp;
 }
 

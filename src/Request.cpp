@@ -69,7 +69,9 @@ Request Request::fromString(const std::string& rawRequest)
             throw std::runtime_error("Malformed request line");
         if (req.version != "HTTP/1.1")
             throw HTTPVersionNotSupportedException("HTTP/1.1 required");
-        if (req.method != "GET" && req.method != "POST" && req.method != "DELETE")
+        if (req.method != "GET" && req.method != "POST" 
+            && req.method != "DELETE" && req.method != "PUT"
+            && req.method != "PATCH")
             throw HTTPMethodNotAllowedException("Method not supported");
     }
     //parse headers, last line is empty
@@ -85,55 +87,67 @@ Request Request::fromString(const std::string& rawRequest)
             // RFC Requirement: A server MUST reject any HTTP/1.1 request that contains whitespace before the colon with a 400 Bad Request status code.
             if (std::any_of(key.begin(), key.end(), [](unsigned char c){ return std::isspace(c); }))
                 throw std::runtime_error("Header key is not allowed to contain space");
-            while (!value.empty() && value.front() == ' ')
-                    value.erase(0, 1);
+            // Remove leading whitespace from value
+            while (!value.empty() && (value.front() == ' ' || value.front() == '\t'))
+                value.erase(0, 1);
+            // lower case keys
             std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c)
                 {
                     return std::tolower(c);
                 });
+            // reject duplicate headers
             if (!req.headers[key].empty())
                 throw std::runtime_error("Duplicate header " + key);
+            // add to header map
             req.headers[key] = value;
         }
+        else throw std::runtime_error("Malformed header line");
+    }
+    // validate host header
+    {
+        auto header_host = req.headers.find("host");
+        if (header_host == req.headers.end() || header_host->second.empty())
+            throw std::runtime_error("Host header is required");
     }
     // Body framing: either Content-Length or Transfer-Encoding (chunked).
-    // A request carrying both is treated as a smuggling attempt (RFC 9112 6.1).
-    auto te_it = req.headers.find("transfer-encoding");
-    auto cl_it = req.headers.find("content-length");
-    if (te_it != req.headers.end())
+    // A request carrying both is treated as a smuggling attempt (RFC 9112 6.1)
     {
-        if (cl_it != req.headers.end())
-            throw std::runtime_error("Content-Length and Transfer-Encoding are mutually exclusive");
-        if (!isChunkedCoding(te_it->second))
-            throw std::runtime_error("Unsupported Transfer-Encoding");
+        auto header_transfer_encoding = req.headers.find("transfer-encoding");
+        auto header_content_length = req.headers.find("content-length");
+        if (header_transfer_encoding != req.headers.end())
+        {
+            if (header_content_length != req.headers.end())
+                throw std::runtime_error("Content-Length and Transfer-Encoding are mutually exclusive");
+            if (!isChunkedCoding(header_transfer_encoding->second))
+                throw std::runtime_error("Unsupported Transfer-Encoding");
 
-        std::ostringstream oss;
-        oss << stream.rdbuf();
-        std::string framed = oss.str();
+            std::ostringstream oss;
+            oss << stream.rdbuf();
+            std::string framed = oss.str();
 
-        std::string decoded;
-        size_t consumed = 0;
-        if (ChunkedBody::decode(framed, std::numeric_limits<size_t>::max(),
-                                decoded, consumed) != ChunkResult::COMPLETE)
-            throw std::runtime_error("Malformed chunked body");
-        req.body = decoded;
-        req.chunked = true;
+            std::string decoded;
+            size_t consumed = 0;
+            if (ChunkedBody::decode(framed, std::numeric_limits<size_t>::max(),
+                                    decoded, consumed) != ChunkResult::COMPLETE)
+                throw std::runtime_error("Malformed chunked body");
+            req.body = decoded;
+            req.chunked = true;
+        }
+        else if (header_content_length != req.headers.end())
+        {
+            const std::string& value = header_content_length->second;
+            unsigned long len{};
+            auto result = std::from_chars(value.data(), value.data() + value.size(), len);
+            if (result.ec != std::errc() || result.ptr != value.data() + value.size())
+                throw std::runtime_error("Invalid Content-Length");
+
+            req.body.resize(len);
+            stream.read(req.body.data(), len);
+            if (stream.gcount() != static_cast<std::streamsize>(len))
+                throw std::runtime_error("Incomplete request body");
+        }
+        return req;
     }
-    else if (cl_it != req.headers.end())
-    {
-        const std::string& value = cl_it->second;
-        unsigned long len{};
-        auto result = std::from_chars(value.data(), value.data() + value.size(), len);
-        if (result.ec != std::errc() || result.ptr != value.data() + value.size())
-            throw std::runtime_error("Invalid Content-Length");
-
-        req.body.resize(len);
-        stream.read(req.body.data(), len);
-        if (stream.gcount() != static_cast<std::streamsize>(len))
-            throw std::runtime_error("Incomplete request body");
-    }
-    // Return built object
-    return req;
 }
 
 const std::string& Request::getHeader(const std::string& key) const {
