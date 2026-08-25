@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vector>
 #include <unordered_map>
 #include <map>
 #include <charconv>
@@ -9,6 +10,10 @@
 #include <optional>
 #include <Request.hpp>
 #include "Defines.hpp"
+
+#ifndef DEFAULT_PORT
+# define DEFAULT_PORT 8080
+#endif
 
 typedef enum {
     GET = 0,

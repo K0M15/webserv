@@ -78,11 +78,11 @@ Request Request::fromString(const std::string& rawRequest)
     {
         if (line.back() == '\r')
             line.pop_back();
-        auto pos = line.find(":");
-        if (pos != std::string::npos)
+        auto position = line.find(":");
+        if (position != std::string::npos)
         {
-            std::string key = line.substr(0, pos);
-            std::string value = line.substr(pos + 1);
+            std::string key = line.substr(0, position);
+            std::string value = line.substr(position + 1);
             // RFC Requirement: A server MUST reject any HTTP/1.1 request that contains whitespace before the colon with a 400 Bad Request status code.
             if (std::any_of(key.begin(), key.end(), [](unsigned char c){ return std::isspace(c); }))
                 throw std::runtime_error("Header key is not allowed to contain space");
@@ -135,4 +135,69 @@ Request Request::fromString(const std::string& rawRequest)
     }
     // Return built object
     return req;
+}
+
+const std::string& Request::getHeader(const std::string& key) const {
+    // fromString() stores header keys lowercased, so lookups must
+    // lowercase the key too, or e.g. getHeader("Content-Type") never matches.
+    std::string lower_key = key;
+    std::transform(lower_key.begin(), lower_key.end(), lower_key.begin(), [](unsigned char c)
+        {
+            return std::tolower(c);
+        });
+    std::map<std::string, std::string>::const_iterator it = headers.find(lower_key);
+    if (it != headers.end()) {
+        return it->second;
+    }
+    static const std::string empty;
+    return empty;
+}
+
+
+/**
+ * Go through cookie header and split at each delimiter ";"
+ * HTTP specs basically require cookies to be joined with a semicolon Delimiter since browsers
+ * will literally join multiple cookies with it. e.g. cookie: session_id=8675309; username=admin; etc
+ * So we take each of these chunks and tokenize key pairs between the session_id, then the values
+ * and return the pairs until we reach the end of the cookie.
+ * For now if nothing is found im just passing an empty string.
+ */
+std::string Request::getCookie(const std::string& name) const
+{
+    std::string cookieHeader = getHeader("Cookie");
+    size_t position = 0;
+
+    while (position < cookieHeader.size())
+    {
+        size_t semicolonDelimiter = cookieHeader.find(';', position);
+
+        std::string pair;
+        if (semicolonDelimiter == std::string::npos)
+            pair = cookieHeader.substr(position);
+        else
+            pair = cookieHeader.substr(position, semicolonDelimiter - position);
+
+        size_t delimiterPosition = pair.find('=');
+        if (delimiterPosition != std::string::npos)
+        {
+            std::string key = pair.substr(0, delimiterPosition);
+            size_t start = key.find_first_not_of(" \t");
+            if (start != std::string::npos)
+                key = key.substr(start);
+            if (key == name)
+            {
+                std::string value = pair.substr(delimiterPosition + 1);
+                size_t end = value.find_last_not_of(" \t");
+                if (end != std::string::npos)
+                    value = value.substr(0, end + 1);
+                return value;
+            }
+        }
+
+        if (semicolonDelimiter == std::string::npos)
+            break;
+        position = semicolonDelimiter + 1;
+    }
+
+    return "";
 }

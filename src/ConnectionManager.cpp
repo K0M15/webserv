@@ -19,23 +19,208 @@
 #include <algorithm>
 #include <charconv>
 #include <sys/stat.h>
+#include <cstdlib>
+#include <iomanip>
 
-Connection::Connection(int fd, const sockaddr_in& a, const std::vector<const WebserverSettings*> candidates)
-    :   fd(fd), addr(a), state(READING),
-        headers_complete(false), content_length(0),
-        header_end(0), chunked(false),
-        bytes_sent(0), keep_alive(false),
-        last_active(std::time(nullptr)), 
-        settings(candidates.empty() ? nullptr : candidates.front()),
-        candidates(candidates){}
+#pragma region cookies
+
+struct SessionCookie
+{
+    std::string id;
+    std::string path;
+    int maxAgeSeconds;
+};
+
+static std::string generateSessionId()
+{
+    int byteLengthSessionID = 8;
+    static bool seeded = false;
+    if (!seeded)
+    {
+        std::srand(static_cast<unsigned int>(std::time(nullptr)));
+        seeded = true;
+    }
+
+    std::ostringstream stream;
+    for (int i = 0; i < byteLengthSessionID; ++i)
+    {
+        unsigned int byte = static_cast<unsigned int>(std::rand() % 256);
+        stream << std::hex << std::setw(2) << std::setfill('0') << byte;
+    }
+    return stream.str();
+}
+
+/**
+ * helper to concatinate the key value pairs and setting up a proper response to browser.
+ */
+static std::string formatCookieHeader(const SessionCookie &cookie)
+{
+    #ifdef DEBUG
+    // terminal debug use only
+    std::cout << " Setting cookie format:\n"
+              << "ID: <" << cookie.id << ">"
+              << " Path: " << cookie.path
+              << " Lifetime: " << cookie.maxAgeSeconds << "s" << std::endl;
+    #endif
+    return "session_id=" + cookie.id +
+           "; Path=" + cookie.path +
+           "; Max-Age=" + std::to_string(cookie.maxAgeSeconds) +
+           "; HttpOnly";
+}
+
+static std::string extractField(const std::string &body, const std::string &fieldName)
+{
+    std::string fieldPrefix = fieldName + "=";
+    size_t position = 0;
+
+    while (position < body.size())
+    {
+        size_t ampersandPosition = body.find('&', position);
+        std::string pair;
+        if (ampersandPosition == std::string::npos)
+            pair = body.substr(position);
+        else
+            pair = body.substr(position, ampersandPosition - position);
+
+        if (pair.compare(0, fieldPrefix.size(), fieldPrefix) == 0)
+            return pair.substr(fieldPrefix.size());
+        if (ampersandPosition == std::string::npos)
+            break;
+        position = ampersandPosition + 1;
+    }
+    return ("");
+}
+
+void ConnectionManager::handleLogin(Connection &conn, const Request &req)
+{
+    std::string username = extractField(req.getBody(), "username");
+    std::string password = extractField(req.getBody(), "password");
+
+    std::optional<UserCredentials> credentials = m_userCredentials.get(username);
+    if (credentials.has_value() && credentials->password == password)
+    {
+        HttpResponse resp;
+        resp.setStatus(200);
+        resp.addHeader("Set-Cookie", addCookie(username, credentials->role));
+        std::cout << username << " logged in with role: " << credentials->role << std::endl;
+        sendResponse(conn, resp);
+        return ;
+    }
+    sendResponse(conn, errorResponse(401, conn.settings, nullptr));
+}
+
+void ConnectionManager::handleLogout(Connection &conn, const Request &req)
+{
+    std::string sessionID = req.getCookie("session_id");
+    if (!sessionID.empty())
+        m_activeSessions.del(sessionID);
+
+    SessionCookie cookie;
+    cookie.id = "";
+    cookie.path = "/";
+    cookie.maxAgeSeconds = 0;
+
+    HttpResponse resp;
+    resp.setStatus(200);
+    resp.addHeader("Set-Cookie", formatCookieHeader(cookie));
+    resp.setBody("<h1>Logged out</h1>");
+    sendResponse(conn, resp);
+}
+
+std::string ConnectionManager::addCookie(const std::string& username, const std::string& role)
+{
+    SessionCookie cookie;
+    cookie.id = generateSessionId();
+    cookie.path = "/";
+
+    #ifdef DEBUG
+        cookie.maxAgeSeconds = 60;
+    #else  
+        cookie.maxAgeSeconds = 60 * 60 * 24 * 7;
+    #endif
+
+    SessionInfo info;
+    info.username = username;
+    info.role = role;
+    info.expiresAt = std::time(nullptr) + cookie.maxAgeSeconds;
+
+    m_activeSessions.set(cookie.id, info);
+
+    return (formatCookieHeader(cookie));
+}
+
+void ConnectionManager::deleteExpiredSessions()
+{
+    time_t now = std::time(nullptr);
+    std::vector<std::string> sessionIds = m_activeSessions.keys();
+
+    for (size_t i = 0; i < sessionIds.size(); ++i)
+    {
+        std::optional<SessionInfo> session = m_activeSessions.get(sessionIds[i]);
+        if (!session.has_value())
+            continue;
+
+        std::cout << sessionIds[i] 
+                  << " expires in " 
+                  << (session->expiresAt - now) 
+                  << " seconds." << std::endl;
+        
+        if (now > session->expiresAt)
+            m_activeSessions.del(sessionIds[i]);
+    }
+}
+
+HttpStatusReason::Code ConnectionManager::checkRole(const Request &req, const std::string& requiredRole)
+{
+    std::string sessionID = req.getCookie("session_id");
+    if(sessionID.empty())
+        return HttpStatusReason::Code::UNAUTHORIZED;
+    std::optional<SessionInfo> session = m_activeSessions.get(sessionID);
+    if(!session.has_value() || session->username.empty())
+        return HttpStatusReason::Code::UNAUTHORIZED;
+    if(session->role != requiredRole)
+        return HttpStatusReason::Code::FORBIDDEN;
+    return HttpStatusReason::Code::OK;
+}
+
+bool    ConnectionManager::handleRole(Connection& conn, const Request& req, const LocationConfig* location, const std::string& requiredRole)
+{
+    HttpStatusReason::Code authResult = checkRole(req, requiredRole);
+    if (authResult != HttpStatusReason::Code::OK)
+    {
+        sendResponse(conn, errorResponse(static_cast<unsigned int>(authResult), conn.settings, location));
+        return (false);
+    }
+    return (true);
+}
+
+#pragma endregion
+
+Connection::Connection(int fd, const sockaddr_in &a, const std::vector<const WebserverSettings *> candidates)
+    : fd(fd), addr(a), state(READING),
+      headers_complete(false), content_length(0),
+      header_end(0), chunked(false),
+      bytes_sent(0), keep_alive(false),
+      last_active(std::time(nullptr)),
+      settings(candidates.empty() ? nullptr : candidates.front()),
+      candidates(candidates) {}
 
 ConnectionManager::ConnectionManager()
 {
+    UserCredentials adminCredentials;
+    adminCredentials.password = "finedining";
+    adminCredentials.role = "admin";
+    m_userCredentials.set("admin", adminCredentials);
+
+    UserCredentials guestCredentials;
+    guestCredentials.password = "guestpass";
+    guestCredentials.role = "user";
+    m_userCredentials.set("guest", guestCredentials);
 }
 
 ConnectionManager::~ConnectionManager()
 {
-    for (auto& pair : m_connections)
+    for (auto &pair : m_connections)
     {
         ::close(pair.first);
         PollHandler::getInstance().unsubscribe(pair.first);
@@ -46,9 +231,9 @@ ConnectionManager::~ConnectionManager()
 void ConnectionManager::acceptConnection(int listen_fd, const std::vector<const WebserverSettings*>& candidates)
 {
     sockaddr_in client_addr;
-    socklen_t   len = sizeof(client_addr);
+    socklen_t len = sizeof(client_addr);
 
-    int client_fd = accept(listen_fd, reinterpret_cast<sockaddr*>(&client_addr), &len);
+    int client_fd = accept(listen_fd, reinterpret_cast<sockaddr *>(&client_addr), &len);
     if (client_fd < 0)
     {
         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
@@ -64,11 +249,10 @@ void ConnectionManager::acceptConnection(int listen_fd, const std::vector<const 
 
     m_connections.emplace(client_fd, Connection(client_fd, client_addr, candidates));
 
-    auto& poll = PollHandler::getInstance();
-    poll.subscribe_read(client_fd,
-        [this, client_fd]() { onClose(client_fd); },
-        [this, client_fd]() { onReadable(client_fd); }
-    );
+    auto &poll = PollHandler::getInstance();
+    poll.subscribe_read(client_fd, [this, client_fd]()
+                        { onClose(client_fd); }, [this, client_fd]()
+                        { onReadable(client_fd); });
 }
 
 void ConnectionManager::onReadable(int fd)
@@ -77,7 +261,7 @@ void ConnectionManager::onReadable(int fd)
     if (it == m_connections.end())
         return;
 
-    Connection& conn = it->second;
+    Connection &conn = it->second;
 
     char buf[8192];
     ssize_t n = read(fd, buf, sizeof(buf));
@@ -119,23 +303,24 @@ void ConnectionManager::onReadable(int fd)
     RequestReadState state = isRequestComplete(conn);
     switch (state)
     {
-        case RequestReadState::INCOMPLETE:
-            return;
-        case RequestReadState::BAD_REQUEST:
-        case RequestReadState::PAYLOAD_TOO_LARGE:
-        case RequestReadState::NOT_IMPLEMENTED:
-        {
-            unsigned int code = (state == RequestReadState::PAYLOAD_TOO_LARGE) ? 413
-                              : (state == RequestReadState::NOT_IMPLEMENTED) ? 501 : 400;
-            HttpResponse resp = errorResponse(code, conn.settings, nullptr);
-            resp.setKeepAlive(false);
-            sendResponse(conn, resp);
-            return;
-        }
-        case RequestReadState::COMPLETE:
-            conn.state = PROCESSING;
-            handleRequestFD(fd);
-            return;
+    case RequestReadState::INCOMPLETE:
+        return;
+    case RequestReadState::BAD_REQUEST:
+    case RequestReadState::PAYLOAD_TOO_LARGE:
+    case RequestReadState::NOT_IMPLEMENTED:
+    {
+        unsigned int code = (state == RequestReadState::PAYLOAD_TOO_LARGE) ? 413
+                            : (state == RequestReadState::NOT_IMPLEMENTED) ? 501
+                                                                           : 400;
+        HttpResponse resp = errorResponse(code, conn.settings, nullptr);
+        resp.setKeepAlive(false);
+        sendResponse(conn, resp);
+        return;
+    }
+    case RequestReadState::COMPLETE:
+        conn.state = PROCESSING;
+        handleRequestFD(fd);
+        return;
     }
 }
 
@@ -145,7 +330,7 @@ void ConnectionManager::onWritable(int fd)
     if (it == m_connections.end())
         return;
 
-    Connection& conn = it->second;
+    Connection &conn = it->second;
     if (conn.state != WRITING)
         return;
 
@@ -174,11 +359,10 @@ void ConnectionManager::onWritable(int fd)
             conn.header_end = 0;
             conn.chunked = false;
 
-            auto& poll = PollHandler::getInstance();
-            poll.subscribe_read(conn.fd,
-                [this, fd]() { onClose(fd); },
-                [this, fd]() { onReadable(fd); }
-            );
+            auto &poll = PollHandler::getInstance();
+            poll.subscribe_read(conn.fd, [this, fd]()
+                                { onClose(fd); }, [this, fd]()
+                                { onReadable(fd); });
         }
         else
         {
@@ -218,7 +402,7 @@ static bool iequals(const std::string& a, const std::string& b)
     return true;
 }
 
-static std::string headerFieldValue(const std::string& lower_haystack, const std::string& name)
+static std::string headerFieldValue(const std::string &lower_haystack, const std::string &name)
 {
     std::string needle = "\r\n" + name + ":";
     size_t pos = lower_haystack.find(needle);
@@ -236,7 +420,7 @@ static std::string headerFieldValue(const std::string& lower_haystack, const std
     return value.substr(b, e - b + 1);
 }
 
-RequestReadState ConnectionManager::isRequestComplete(Connection& conn)
+RequestReadState ConnectionManager::isRequestComplete(Connection &conn)
 {
     if (!conn.headers_complete)
     {
@@ -249,7 +433,8 @@ RequestReadState ConnectionManager::isRequestComplete(Connection& conn)
 
         std::string header_part = conn.read_buffer.substr(0, header_end);
         std::transform(header_part.begin(), header_part.end(), header_part.begin(),
-                       [](unsigned char c) { return std::tolower(c); });
+                       [](unsigned char c)
+                       { return std::tolower(c); });
 
         std::string cl_value = headerFieldValue(header_part, "content-length");
         std::string te_value = headerFieldValue(header_part, "transfer-encoding");
@@ -289,16 +474,16 @@ RequestReadState ConnectionManager::isRequestComplete(Connection& conn)
         size_t consumed = 0;
         switch (ChunkedBody::decode(framed, max, decoded, consumed))
         {
-            case ChunkResult::INCOMPLETE:
-                return RequestReadState::INCOMPLETE;
-            case ChunkResult::MALFORMED:
-                return RequestReadState::BAD_REQUEST;
-            case ChunkResult::TOO_LARGE:
-                return RequestReadState::PAYLOAD_TOO_LARGE;
-            case ChunkResult::COMPLETE:
-                return conn.read_buffer.size() >= body_start + consumed
-                     ? RequestReadState::COMPLETE
-                     : RequestReadState::INCOMPLETE;
+        case ChunkResult::INCOMPLETE:
+            return RequestReadState::INCOMPLETE;
+        case ChunkResult::MALFORMED:
+            return RequestReadState::BAD_REQUEST;
+        case ChunkResult::TOO_LARGE:
+            return RequestReadState::PAYLOAD_TOO_LARGE;
+        case ChunkResult::COMPLETE:
+            return conn.read_buffer.size() >= body_start + consumed
+                       ? RequestReadState::COMPLETE
+                       : RequestReadState::INCOMPLETE;
         }
     }
 
@@ -306,49 +491,72 @@ RequestReadState ConnectionManager::isRequestComplete(Connection& conn)
     if (conn.content_length > max)
         return RequestReadState::PAYLOAD_TOO_LARGE;
     return conn.read_buffer.size() >= body_start + conn.content_length
-         ? RequestReadState::COMPLETE
-         : RequestReadState::INCOMPLETE;
+               ? RequestReadState::COMPLETE
+               : RequestReadState::INCOMPLETE;
 }
 
-static const char* mimeType(const std::string& filename)
+static const char *mimeType(const std::string &filename)
 {
     auto pos = filename.rfind('.');
-    if (pos == std::string::npos) return "application/octet-stream";
+    if (pos == std::string::npos)
+        return "application/octet-stream";
     std::string ext = filename.substr(pos);
-    if (ext == ".html") return "text/html";
-    if (ext == ".htm")  return "text/html";
-    if (ext == ".css")  return "text/css";
-    if (ext == ".js")   return "application/javascript";
-    if (ext == ".png")  return "image/png";
-    if (ext == ".jpg" || ext == ".jpeg") return "image/jpeg";
-    if (ext == ".gif")  return "image/gif";
-    if (ext == ".ico")  return "image/x-icon";
-    if (ext == ".txt")  return "text/plain";
-    if (ext == ".pdf")  return "application/pdf";
-    if (ext == ".json") return "application/json";
-    if (ext == ".xml")  return "application/xml";
-    if (ext == ".svg")  return "image/svg+xml";
+    if (ext == ".html")
+        return "text/html";
+    if (ext == ".htm")
+        return "text/html";
+    if (ext == ".css")
+        return "text/css";
+    if (ext == ".js")
+        return "application/javascript";
+    if (ext == ".png")
+        return "image/png";
+    if (ext == ".jpg" || ext == ".jpeg")
+        return "image/jpeg";
+    if (ext == ".gif")
+        return "image/gif";
+    if (ext == ".ico")
+        return "image/x-icon";
+    if (ext == ".txt")
+        return "text/plain";
+    if (ext == ".pdf")
+        return "application/pdf";
+    if (ext == ".json")
+        return "application/json";
+    if (ext == ".xml")
+        return "application/xml";
+    if (ext == ".svg")
+        return "image/svg+xml";
     return "application/octet-stream";
 }
 
-static Method parseMethod(const std::string& method) {
-    if (method == "GET")     return GET;
-    if (method == "HEAD")    return HEAD;
-    if (method == "POST")    return POST;
-    if (method == "PUT")     return PUT;
-    if (method == "PATCH")   return PATCH;
-    if (method == "OPTIONS") return OPTIONS;
-    if (method == "DELETE")  return DELETE;
+static Method parseMethod(const std::string &method)
+{
+    if (method == "GET")
+        return GET;
+    if (method == "HEAD")
+        return HEAD;
+    if (method == "POST")
+        return POST;
+    if (method == "PUT")
+        return PUT;
+    if (method == "PATCH")
+        return PATCH;
+    if (method == "OPTIONS")
+        return OPTIONS;
+    if (method == "DELETE")
+        return DELETE;
     return GET;
 }
 
 static bool isMethodAllowed(
-    const std::string& method,
-    const WebserverSettings* settings,
-    const LocationConfig* location)
+    const std::string &method,
+    const WebserverSettings *settings,
+    const LocationConfig *location)
 {
-    const std::vector<Method>& allowed = (location && !location->methods.empty())
-        ? location->methods : settings->methods;
+    const std::vector<Method> &allowed = (location && !location->methods.empty())
+                                             ? location->methods
+                                             : settings->methods;
     if (allowed.empty())
         return true;
     Method m = parseMethod(method);
@@ -358,10 +566,13 @@ static bool isMethodAllowed(
     return false;
 }
 
-static std::string buildAllowHeader(const std::vector<Method>& methods) {
+static std::string buildAllowHeader(const std::vector<Method> &methods)
+{
     std::string h;
-    for (size_t i = 0; i < methods.size(); ++i) {
-        if (i) h += ", ";
+    for (size_t i = 0; i < methods.size(); ++i)
+    {
+        if (i)
+            h += ", ";
         h += method_name(methods[i]);
     }
     return h;
@@ -369,28 +580,33 @@ static std::string buildAllowHeader(const std::vector<Method>& methods) {
 
 HttpResponse ConnectionManager::errorResponse(
     unsigned int code,
-    const WebserverSettings* settings,
-    const LocationConfig* location)
+    const WebserverSettings *settings,
+    const LocationConfig *location)
 {
-    const std::string* error_path = nullptr;
-    if (location) {
+    const std::string *error_path = nullptr;
+    if (location)
+    {
         auto it = location->error_page.find(code);
         if (it != location->error_page.end())
             error_path = &it->second;
     }
-    if (!error_path) {
+    if (!error_path)
+    {
         auto it = settings->error_page.find(code);
         if (it != settings->error_page.end())
             error_path = &it->second;
     }
 
-    if (error_path) {
+    if (error_path)
+    {
         std::string root = (location && !location->root.empty())
-            ? location->root : settings->root;
+                               ? location->root
+                               : settings->root;
         std::string full_path = root + *error_path;
 
         std::ifstream file(full_path);
-        if (file.is_open()) {
+        if (file.is_open())
+        {
             std::stringstream ss;
             ss << file.rdbuf();
             file.close();
@@ -406,9 +622,9 @@ HttpResponse ConnectionManager::errorResponse(
     return HttpResponse::error(code);
 }
 
-static std::string resolvePath(const std::string& root,
-                                const std::string& url_path,
-                                const WebserverSettings* settings)
+static std::string resolvePath(const std::string &root,
+                               const std::string &url_path,
+                               const WebserverSettings *settings)
 {
     if (url_path.empty())
         return root + "/" + settings->index;
@@ -422,22 +638,20 @@ static std::string resolvePath(const std::string& root,
 }
 // Picks the most specific (longest) location whose path is a full-segment
 // prefix of url_path - e.g. location "/upload" matches "/upload" and
-// "/upload/x", but NOT "/upload.txt" or "/uploadFoo" 
+// "/upload/x", but NOT "/upload.txt" or "/uploadFoo"
 // Mirrors how nginx resolves prefix locations.
-static const LocationConfig* matchLocation(const std::string& url_path,
-    const std::unordered_map<std::string, LocationConfig>& locations)
+static const LocationConfig *matchLocation(const std::string &url_path,
+                                           const std::unordered_map<std::string, LocationConfig> &locations)
 {
-    const LocationConfig* matched = nullptr;
-    for (const auto& loc : locations)
+    const LocationConfig *matched = nullptr;
+    for (const auto &loc : locations)
     {
-        const std::string& consider = loc.second.path;
+        const std::string &consider = loc.second.path;
         // do we have an exact match?
         if (url_path.compare(0, consider.size(), consider) != 0)
             continue;
         //
-        bool at_boundary = url_path.size() == consider.size()
-            || (!consider.empty() && consider.back() == '/')
-            || url_path[consider.size()] == '/';
+        bool at_boundary = url_path.size() == consider.size() || (!consider.empty() && consider.back() == '/') || url_path[consider.size()] == '/';
         if (!at_boundary)
             continue;
         if (!matched || consider.size() > matched->path.size())
@@ -454,7 +668,7 @@ void ConnectionManager::handleRequestFD(int fd)
     if (it == m_connections.end())
         return;
 
-    Connection& conn = it->second;
+    Connection &conn = it->second;
 
     try
     {
@@ -484,7 +698,7 @@ void ConnectionManager::handleRequestFD(int fd)
     }
 }
 
-void ConnectionManager::handleRequest(Connection& conn, const Request& req)
+void ConnectionManager::handleRequest(Connection &conn, const Request &req)
 {
     const std::string keep_alive = req.getHeader("keep-alive");
     if (!keep_alive.empty() && keep_alive == "true")
@@ -502,16 +716,31 @@ void ConnectionManager::handleRequest(Connection& conn, const Request& req)
     Method m = parseMethod(req.getMethod());
     std::string url_path = req.getURL().str();
     std::string url_file = url_path.substr(0, url_path.find('?'));
-    const LocationConfig* location = matchLocation(url_file, conn.settings->locations);
+
+    //can do wrapper here i guess
+    if (url_file == "/login" && m == POST)
+    {
+        handleLogin(conn, req);
+        return;
+    }
+    if (url_file == "/logout" && m == POST)
+    {
+        handleLogout(conn, req);
+        return;
+    }
+
+    const LocationConfig *location = matchLocation(url_file, conn.settings->locations);
     if (tryRedirect(conn, location))
         return;
     std::string root = (location && !location->root.empty())
-                     ? location->root : conn.settings->root;
+                           ? location->root
+                           : conn.settings->root;
 
     if (!isMethodAllowed(req.getMethod(), conn.settings, location))
     {
-        const std::vector<Method>& allowed = (location && !location->methods.empty())
-            ? location->methods : conn.settings->methods;
+        const std::vector<Method> &allowed = (location && !location->methods.empty())
+                                                 ? location->methods
+                                                 : conn.settings->methods;
         HttpResponse resp = errorResponse(405, conn.settings, location);
         resp.addHeader("Allow", buildAllowHeader(allowed));
         resp.setKeepAlive(false);
@@ -521,9 +750,9 @@ void ConnectionManager::handleRequest(Connection& conn, const Request& req)
 
     std::cout << method_name(m) << " " << url_file;
     std::string ext = req.getURL().getFileExt();
-    auto& interpreters = (location && !location->cgi_ext_interpreter.empty())
-                       ? location->cgi_ext_interpreter
-                       : conn.settings->cgi_ext_interpreter;
+    auto &interpreters = (location && !location->cgi_ext_interpreter.empty())
+                             ? location->cgi_ext_interpreter
+                             : conn.settings->cgi_ext_interpreter;
     auto interp = interpreters.find(ext);
     if (interp != interpreters.end())
     {
@@ -538,48 +767,56 @@ void ConnectionManager::handleRequest(Connection& conn, const Request& req)
     {
         switch (m)
         {
-            case GET:
-                handleGet(conn, root, url_path, location); break;
-            case HEAD:
-                handleHead(conn, root, url_path, location); break;
-            case POST:
-                handlePost(conn, req, location); break;
-            case DELETE:
-                handleDelete(conn, root, url_path, location); break;
-            case OPTIONS:
-            {
-                const std::vector<Method>& allowed = (location && !location->methods.empty())
-                    ? location->methods : conn.settings->methods;
-                handleOptions(conn, allowed); break;
-            }
-            default:
-                sendResponse(conn, errorResponse(501, conn.settings, location));
+        case GET:
+            handleGet(conn, root, url_path, location, req);
+            break;
+        case HEAD:
+            handleHead(conn, root, url_path, location);
+            break;
+        case POST:
+            handlePost(conn, req, location);
+            break;
+        case DELETE:
+            if (handleRole(conn, req, location, "admin"))
+                handleDelete(conn, root, url_path, location);
+            break;
+        case OPTIONS:
+        {
+            const std::vector<Method> &allowed = (location && !location->methods.empty())
+                                                     ? location->methods
+                                                     : conn.settings->methods;
+            handleOptions(conn, allowed);
+            break;
+        }
+        default:
+            sendResponse(conn, errorResponse(501, conn.settings, location));
         }
     }
-    catch(const std::exception& e)
+    catch (const std::exception &e)
     {
         std::cerr << e.what() << '\n';
         sendResponse(conn, errorResponse(501, conn.settings, location));
     }
-    
 }
 
-bool ConnectionManager::tryCGI(int fd, const std::string& filePath,
-                                const std::string& interpreter,
-                                const Request& req)
+bool ConnectionManager::tryCGI(int fd, const std::string &filePath,
+                               const std::string &interpreter,
+                               const Request &req)
 {
     auto it = m_connections.find(fd);
-    if (it == m_connections.end()) return false;
-    Connection& conn = it->second;
+    if (it == m_connections.end())
+        return false;
+    Connection &conn = it->second;
 
     try
     {
         conn.cgi_handler = std::make_unique<CGIHandler>(
             filePath, interpreter, req, conn,
-            [this, fd]() { onCGIComplete(fd); });
+            [this, fd]()
+            { onCGIComplete(fd); });
         return true;
     }
-    catch (const std::exception& e)
+    catch (const std::exception &e)
     {
         return false;
     }
@@ -588,12 +825,14 @@ bool ConnectionManager::tryCGI(int fd, const std::string& filePath,
 void ConnectionManager::onCGIComplete(int fd)
 {
     auto it = m_connections.find(fd);
-    if (it == m_connections.end()) return;
-    Connection& conn = it->second;
-    if (!conn.cgi_handler) return;
+    if (it == m_connections.end())
+        return;
+    Connection &conn = it->second;
+    if (!conn.cgi_handler)
+        return;
 
     int status = conn.cgi_handler->getExitStatus();
-    const std::string& raw = conn.cgi_handler->getOutput();
+    const std::string &raw = conn.cgi_handler->getOutput();
 
     HttpResponse resp;
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
@@ -604,7 +843,8 @@ void ConnectionManager::onCGIComplete(int fd)
     {
         size_t header_end = raw.find("\r\n\r\n");
         std::string body = (header_end != std::string::npos)
-                         ? raw.substr(header_end + 4) : raw;
+                               ? raw.substr(header_end + 4)
+                               : raw;
 
         resp.setStatus(200);
         resp.setBody(body);
@@ -617,19 +857,21 @@ void ConnectionManager::onCGIComplete(int fd)
             {
                 size_t nl = cgi_headers.find("\r\n", pos);
                 std::string line = (nl != std::string::npos)
-                                 ? cgi_headers.substr(pos, nl - pos)
-                                 : cgi_headers.substr(pos);
+                                       ? cgi_headers.substr(pos, nl - pos)
+                                       : cgi_headers.substr(pos);
                 size_t colon = line.find(':');
                 if (colon != std::string::npos)
                 {
                     std::string key = line.substr(0, colon);
                     std::string val = line.substr(colon + 1);
                     size_t first = val.find_first_not_of(' ');
-                    if (first != std::string::npos) val = val.substr(first);
+                    if (first != std::string::npos)
+                        val = val.substr(first);
                     if (key != "Status" && !key.empty())
                         resp.addHeader(key, val);
                 }
-                if (nl == std::string::npos) break;
+                if (nl == std::string::npos)
+                    break;
                 pos = nl + 2;
             }
         }
@@ -637,12 +879,12 @@ void ConnectionManager::onCGIComplete(int fd)
     sendResponse(conn, resp);
 }
 
-void ConnectionManager::handleGet(Connection& conn, const std::string& root,
-                                   const std::string& url_path,
-                                   const LocationConfig* location)
+void ConnectionManager::handleGet(Connection &conn, const std::string &root,
+                                  const std::string &url_path,
+                                  const LocationConfig *location,
+                                  const Request &req)
 {
     std::string path = resolvePath(root, url_path, conn.settings);
-
     std::ifstream file(path);
     if (file.is_open())
     {
@@ -659,6 +901,10 @@ void ConnectionManager::handleGet(Connection& conn, const std::string& root,
         if (stat(path.c_str(), &st) == 0)
             resp.addHeader("Last-Modified", HttpResponse::httpDate(st.st_mtime));
 
+        std::string session_id = req.getCookie("session_id");
+        if (session_id.empty() || !m_activeSessions.exists(session_id))
+            resp.addHeader("Set-Cookie", addCookie("", ""));
+
         sendResponse(conn, resp);
         return;
     }
@@ -671,9 +917,9 @@ void ConnectionManager::handleGet(Connection& conn, const std::string& root,
     sendResponse(conn, errorResponse(404, conn.settings, location));
 }
 
-void ConnectionManager::handleHead(Connection& conn, const std::string& root,
-                                    const std::string& url_path,
-                                    const LocationConfig* location)
+void ConnectionManager::handleHead(Connection &conn, const std::string &root,
+                                   const std::string &url_path,
+                                   const LocationConfig *location)
 {
     std::string path = resolvePath(root, url_path, conn.settings);
 
@@ -701,8 +947,8 @@ void ConnectionManager::handleHead(Connection& conn, const std::string& root,
     sendResponse(conn, errorResponse(404, conn.settings, location));
 }
 
-void ConnectionManager::handlePost(Connection& conn, const Request& req,
-                                    const LocationConfig* location)
+void ConnectionManager::handlePost(Connection &conn, const Request &req,
+                                   const LocationConfig *location)
 {
     std::string contentType = req.getHeader("Content-Type");
 
@@ -719,14 +965,14 @@ void ConnectionManager::handlePost(Connection& conn, const Request& req,
         }
         switch (policy)
         {
-            case MissingContentTypePolicy::UNSET:
-                break;
-            case MissingContentTypePolicy::REJECT:
-                sendResponse(conn, errorResponse(400, conn.settings, location));
-                return;
-            case MissingContentTypePolicy::DEFAULT:
-                contentType = defaultCt;
-                break;
+        case MissingContentTypePolicy::UNSET:
+            break;
+        case MissingContentTypePolicy::REJECT:
+            sendResponse(conn, errorResponse(400, conn.settings, location));
+            return;
+        case MissingContentTypePolicy::DEFAULT:
+            contentType = defaultCt;
+            break;
         }
     }
     if (req.getBody().size() > conn.settings->max_body_size)
@@ -744,7 +990,7 @@ void ConnectionManager::handlePost(Connection& conn, const Request& req,
     std::string url_path = PathUtils::stripQuery(req.getURL().str());
     std::string dest_path;
     PathUtils::ResolveResult r = PathUtils::resolveUnder(
-            location->upload_dir, url_path, location->path, dest_path, false);
+        location->upload_dir, url_path, location->path, dest_path, false);
 
     if (r != PathUtils::RESOLVE_OK)
     {
@@ -782,9 +1028,9 @@ void ConnectionManager::handlePost(Connection& conn, const Request& req,
     sendResponse(conn, resp);
 }
 
-void ConnectionManager::handleDelete(Connection& conn, const std::string& root,
-                                      const std::string& url_path,
-                                      const LocationConfig* location)
+void ConnectionManager::handleDelete(Connection &conn, const std::string &root,
+                                     const std::string &url_path,
+                                     const LocationConfig *location)
 {
     if (url_path == "/")
     {
@@ -815,12 +1061,12 @@ void ConnectionManager::handleDelete(Connection& conn, const std::string& root,
     sendResponse(conn, HttpResponse::error(204));
 }
 
-void ConnectionManager::handleOptions(Connection& conn,
-                                       const std::vector<Method>& allowed)
+void ConnectionManager::handleOptions(Connection &conn,
+                                      const std::vector<Method> &allowed)
 {
     std::string allow = allowed.empty()
-        ? std::string("GET, HEAD, POST, OPTIONS, DELETE")
-        : buildAllowHeader(allowed);
+                            ? std::string("GET, HEAD, POST, OPTIONS, DELETE")
+                            : buildAllowHeader(allowed);
 
     HttpResponse resp;
     resp.setStatus(204);
@@ -829,14 +1075,15 @@ void ConnectionManager::handleOptions(Connection& conn,
     sendResponse(conn, resp);
 }
 
-bool ConnectionManager::tryRedirect(Connection& conn, const LocationConfig* location)
+bool ConnectionManager::tryRedirect(Connection &conn, const LocationConfig *location)
 {
-    const std::string* target = nullptr;
+    const std::string *target = nullptr;
     if (location && !location->redirect.empty())
         target = &location->redirect;
     else if (!conn.settings->redirect.empty())
         target = &conn.settings->redirect;
-    if (!target) return false;
+    if (!target)
+        return false;
 
     HttpResponse resp;
     resp.setStatus(301);
@@ -846,7 +1093,7 @@ bool ConnectionManager::tryRedirect(Connection& conn, const LocationConfig* loca
     return true;
 }
 
-const WebserverSettings* ConnectionManager::resolveSettings(Connection& conn, const Request& req) const
+const WebserverSettings *ConnectionManager::resolveSettings(Connection &conn, const Request &req) const
 {
     std::string target = req.getHeader("host");
     // remove port and colon
@@ -855,17 +1102,17 @@ const WebserverSettings* ConnectionManager::resolveSettings(Connection& conn, co
     if (target.empty())
         return conn.candidates[0]; // for now default
     // lowercase target
-    std::transform(target.begin(), target.end(), target.begin(), [](char c){
-        return std::tolower(c);
-    });
-    for (auto& it : conn.candidates)
+    std::transform(target.begin(), target.end(), target.begin(), [](char c)
+                   { return std::tolower(c); });
+    for (auto &it : conn.candidates)
     {
-        for (auto& name : it->server_name)
+        for (auto &name : it->server_name)
         {
             std::string lower;
             lower.reserve(name.size());
             std::transform(name.begin(), name.end(), std::back_inserter(lower),
-                           [](unsigned char c) { return std::tolower(c); });
+                           [](unsigned char c)
+                           { return std::tolower(c); });
             if (target == lower)
                 return it;
         }
@@ -881,14 +1128,13 @@ void ConnectionManager::sendResponse(Connection& conn, const HttpResponse& respo
     conn.response_buffer = response.toString();
     conn.bytes_sent = 0;
     conn.state = WRITING;
-    
+
     std::cout << ", sent " << response.getStatus() << std::endl;
 
-    auto& poll = PollHandler::getInstance();
-    poll.subscribe_write(conn.fd,
-        [this, fd = conn.fd]() { onClose(fd); },
-        [this, fd = conn.fd]() { onWritable(fd); }
-    );
+    auto &poll = PollHandler::getInstance();
+    poll.subscribe_write(conn.fd, [this, fd = conn.fd]()
+                         { onClose(fd); }, [this, fd = conn.fd]()
+                         { onWritable(fd); });
 }
 
 void ConnectionManager::checkTimeouts(int timeout_seconds)
@@ -905,9 +1151,8 @@ void ConnectionManager::checkTimeouts(int timeout_seconds)
             onClose(fd);
         }
         else
-        {
             ++it;
-        }
     }
+    deleteExpiredSessions();
 }
 #pragma endregion
