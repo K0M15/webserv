@@ -320,6 +320,13 @@ void ConnectionManager::onReadable(int fd)
         sendResponse(conn, resp);
         return;
     }
+    case RequestReadState::EXPECTATION_FAILED:
+    {
+        HttpResponse resp = errorResponse(417, conn.settings, nullptr);
+        resp.setKeepAlive(false);
+        sendResponse(conn, resp);
+        return;
+    }
     case RequestReadState::COMPLETE:
         conn.state = PROCESSING;
         handleRequestFD(fd);
@@ -425,7 +432,6 @@ static std::string headerFieldValue(const std::string &lower_haystack, const std
 
 RequestReadState ConnectionManager::isRequestComplete(Connection &conn)
 {
-    //TODO: add 100-continue and expect header.
     if (!conn.headers_complete)
     {
         size_t header_end = conn.read_buffer.find("\r\n\r\n");
@@ -440,10 +446,12 @@ RequestReadState ConnectionManager::isRequestComplete(Connection &conn)
                        [](unsigned char c)
                        { return std::tolower(c); });
 
+        std::string expect_value = headerFieldValue(header_part, "Expect");
         std::string cl_value = headerFieldValue(header_part, "content-length");
         std::string te_value = headerFieldValue(header_part, "transfer-encoding");
+        
         if (!te_value.empty() && !cl_value.empty())
-            return RequestReadState::BAD_REQUEST; // request smuggling
+            return RequestReadState::BAD_REQUEST;
 
         if (!te_value.empty())
         {
@@ -466,13 +474,34 @@ RequestReadState ConnectionManager::isRequestComplete(Connection &conn)
             else
                 conn.content_length = 0;
         }
+        if (!expect_value.empty())
+        {
+            if (expect_value != "100-continue") // https://www.rfc-editor.org/info/rfc9110/#field.expect
+                return RequestReadState::EXPECTATION_FAILED;
+            size_t max_body_size = conn.settings ? conn.settings->max_body_size : DEFAULT_MAX_BODY_SIZE;
+            if (conn.content_length > max_body_size)
+            {
+                return RequestReadState::PAYLOAD_TOO_LARGE;
+            }
+            //check if readbuffer is already big enough to contain data:
+            if (conn.read_buffer.size() <= conn.header_end + 4 + conn.content_length)
+            {
+                PollHandler::getInstance().subscribe_write(conn.fd,
+                    [this, fd = conn.fd](){ onClose(fd); },
+                    [fd = conn.fd](){
+                        write(fd, "100-continue", sizeof("100-continue"));
+                    }
+                );
+            }
+            return RequestReadState::INCOMPLETE;
+        }
     }
 
     size_t body_start = conn.header_end + 4;
 
     if (conn.chunked)
     {
-        size_t max = conn.settings ? conn.settings->max_body_size : 0;
+        size_t max = conn.settings ? conn.settings->max_body_size : DEFAULT_MAX_BODY_SIZE;
         std::string framed = conn.read_buffer.substr(body_start);
         std::string decoded;
         size_t consumed = 0;
@@ -491,7 +520,7 @@ RequestReadState ConnectionManager::isRequestComplete(Connection &conn)
         }
     }
 
-    size_t max = conn.settings ? conn.settings->max_body_size : 0;
+    size_t max = conn.settings ? conn.settings->max_body_size : DEFAULT_MAX_BODY_SIZE;
     if (conn.content_length > max)
         return RequestReadState::PAYLOAD_TOO_LARGE;
     return conn.read_buffer.size() >= body_start + conn.content_length
@@ -665,7 +694,7 @@ static const LocationConfig *matchLocation(const std::string &url_path,
 }
 #pragma endregion
 
-#pragma region HANDLING_REQUESTS
+#pragma region Handlers
 void ConnectionManager::handleRequestFD(int fd)
 {
     auto it = m_connections.find(fd);
@@ -1197,9 +1226,10 @@ void ConnectionManager::sendResponse(Connection& conn, const HttpResponse& respo
     std::cout << ", sent " << response.getStatus() << std::endl;
 
     auto &poll = PollHandler::getInstance();
-    poll.subscribe_write(conn.fd, [this, fd = conn.fd]()
-                         { onClose(fd); }, [this, fd = conn.fd]()
-                         { onWritable(fd); });
+    poll.subscribe_write(conn.fd,
+            [this, fd = conn.fd](){ onClose(fd); },
+            [this, fd = conn.fd](){ onWritable(fd);}
+        );
 }
 
 void ConnectionManager::checkTimeouts(int timeout_seconds)
