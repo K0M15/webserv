@@ -61,21 +61,9 @@
 # define MAX_MAX_BODY_SIZE (100UL * 1024UL * 1024UL)
 #endif
 
-// Network & Timeout Defaults
+// Timeout Defaults
 #ifndef DEFAULT_KEEP_ALIVE_TIMEOUT
 # define DEFAULT_KEEP_ALIVE_TIMEOUT 60
-#endif
-
-#ifndef DEFAULT_TCP_KEEPIDLE
-# define DEFAULT_TCP_KEEPIDLE 60
-#endif
-
-#ifndef DEFAULT_TCP_KEEPINTVL
-# define DEFAULT_TCP_KEEPINTVL 10
-#endif
-
-#ifndef DEFAULT_TCP_KEEPCNT
-# define DEFAULT_TCP_KEEPCNT 3
 #endif
 
 // Buffer Sizes
@@ -85,5 +73,5 @@
 
 // Debug Flag
 #ifndef DEBUG
-# define DEBUG 0
+// # define DEBUG
 #endif
