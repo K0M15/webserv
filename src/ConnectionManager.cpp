@@ -4,6 +4,7 @@
 #include "CGIHandler.hpp"
 #include "PathUtils.hpp"
 #include "Chunked.hpp"
+#include "Defines.hpp"
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>

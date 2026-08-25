@@ -1,4 +1,5 @@
 #include "Webserver.hpp"
+#include "Defines.hpp"
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <unistd.h>
@@ -64,7 +65,7 @@ int Webserver::createListenSocket(const ListenDirective& ld)
     addr.sin_family = AF_INET;
     addr.sin_port = htons(static_cast<uint16_t>(ld.port));
 
-    if (ld.address.empty() || ld.address == "0.0.0.0")
+    if (ld.address.empty() || ld.address == DEFAULT_LISTEN_ADDRESS)
         addr.sin_addr.s_addr = INADDR_ANY;
     else if (inet_pton(AF_INET, ld.address.c_str(), &addr.sin_addr) <= 0)
     {
@@ -113,7 +114,7 @@ void Webserver::setupListenSockets()
 
         for (const auto& ld : settings->listen)
         {
-            std::string key = (ld.address.empty() ? "0.0.0.0" : ld.address)
+            std::string key = (ld.address.empty() ? DEFAULT_LISTEN_ADDRESS : ld.address)
                             + ":" + std::to_string(ld.port);
 
             int fd = -1;
@@ -180,7 +181,7 @@ void Webserver::run()
         try
         {
             poll.checkFDs();
-            m_conn_manager.checkTimeouts(60);
+            m_conn_manager.checkTimeouts(DEFAULT_KEEP_ALIVE_TIMEOUT);
         }
         catch (const std::exception& e)
         {
