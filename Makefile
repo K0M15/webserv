@@ -1,7 +1,7 @@
 NAME = webserv
 
 CXX = c++
-CXXFLAGS = -Wall -Wextra -Werror -std=c++17 -Iinclude -g
+CXXFLAGS = -Wall -Wextra -Werror -std=c++17 -Iinclude -g -MMD -MP
 
 SRCS =  src/main.cpp \
 		src/PollHandler.cpp \
@@ -18,6 +18,7 @@ SRCS =  src/main.cpp \
 		src/URL.cpp
 
 OBJ_DIR = obj
+DEPS = $(OBJS:.o=.d)
 
 OBJS =  obj/main.o \
 		obj/PollHandler.o \
@@ -45,6 +46,8 @@ all:
 	@echo "▐▙█▟▌▐▙▄▄▖▐▙▄▞▘▗▄▄▞▘▐▙▄▄▖▐▌ ▐▌ ▝▚▞▘ "
 	@echo "A 42 project by: afelger, dabierma, and jpflegha"
 	@echo "$(GREEN)Build Completed -> Run with ./webserv test.conf$(WHITE)"
+
+-include $(DEPS)
 
 $(NAME): $(OBJS)
 	@$(CXX) $(CXXFLAGS) $(OBJS) -o $(NAME)
