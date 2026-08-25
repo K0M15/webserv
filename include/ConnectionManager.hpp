@@ -27,7 +27,8 @@ enum class RequestReadState {
     COMPLETE,           // ready to be handled
     BAD_REQUEST,        // malformed framing or request smuggling -> 400
     PAYLOAD_TOO_LARGE,  // body exceeds max_body_size             -> 413
-    NOT_IMPLEMENTED     // unsupported transfer coding            -> 501
+    NOT_IMPLEMENTED,    // unsupported transfer coding            -> 501
+    EXPECTATION_FAILED  // wrong expection in header              -> 417
 };
 
 class ConnectionManager {

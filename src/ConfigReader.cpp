@@ -1,5 +1,4 @@
 #include "ConfigReader.h"
-
 #include <algorithm>
 #include <string_view>
 
