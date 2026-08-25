@@ -1,6 +1,5 @@
 #include "PollHandler.hpp"
 #include <algorithm>
-#include <cerrno>
 
 PollHandler& PollHandler::getInstance()
 {
@@ -97,12 +96,7 @@ void PollHandler::checkFDs() {
         pollfds.push_back(pfd);
     }
     int result = poll(pollfds.data(), pollfds.size(), timeout);
-    if (result < 0)
-    {
-        if (errno == EINTR)
-            return;
-        throw HttpServerException("Error on poll");
-    }
+    if (result < 0) throw HttpServerException("Error on poll");
     if (result == 0) return;
     for (size_t i = 0; i < pollfds.size(); ++i) {
         short revents = pollfds[i].revents;

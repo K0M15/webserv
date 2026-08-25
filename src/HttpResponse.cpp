@@ -135,7 +135,7 @@ HttpResponse HttpResponse::dirindex(const std::string& path, const std::string p
             if (stat(std::string(path + entry->d_name).c_str(), &entryStat))
             {
 #ifndef DEBUG
-                std::cout << "[Error] stat reading " << path << entry->d_name << " , returned error: " << strerror(errno) << std::endl;
+                std::cout << "[Error] stat reading " << path << entry->d_name << " , error reading directory entry" << std::endl;
                 document << "<tr><td><a href=\"" << prefix + "/" + entry->d_name << "\">" << entry->d_name <<"</a></td><td>" << entry->d_reclen <<" byte </td></tr>\n";                
                 continue;
 #endif /* DEBUG */

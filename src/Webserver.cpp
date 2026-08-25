@@ -3,7 +3,6 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <cerrno>
 #include <cstring>
 #include <iostream>
 #include <csignal>
@@ -48,14 +47,14 @@ int Webserver::createListenSocket(const ListenDirective& ld)
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0)
     {
-        std::cerr << "socket() failed: " << std::strerror(errno) << std::endl;
+        std::cerr << "socket() failed: error creating listening socket" << std::endl;
         return -1;
     }
 
     int opt = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
     {
-        std::cerr << "setsockopt(SO_REUSEADDR) failed: " << std::strerror(errno) << std::endl;
+        std::cerr << "setsockopt(SO_REUSEADDR) failed: error setting socket options" << std::endl;
         ::close(fd);
         return -1;
     }
@@ -76,22 +75,21 @@ int Webserver::createListenSocket(const ListenDirective& ld)
 
     if (bind(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) < 0)
     {
-        std::cerr << "bind() failed on " << ld.address << ":" << ld.port
-                  << " — " << std::strerror(errno) << std::endl;
+        std::cerr << "bind() failed on " << ld.address << ":" << ld.port << "error binding socket" << std::endl;
         ::close(fd);
         return -1;
     }
 
     if (listen(fd, SOMAXCONN) < 0)
     {
-        std::cerr << "listen() failed: " << std::strerror(errno) << std::endl;
+        std::cerr << "listen() failed: error listening on socket" << std::endl;
         ::close(fd);
         return -1;
     }
 
     if (fcntl(fd, F_SETFL, O_NONBLOCK | O_CLOEXEC ) < 0)
     {
-        std::cerr << "fcntl(O_NONBLOCK | O_CLOEXEC) failed: " << std::strerror(errno) << std::endl;
+        std::cerr << "fcntl(O_NONBLOCK | O_CLOEXEC) failed: error setting listening socket file descriptor flags" << std::endl;
         ::close(fd);
         return -1;
     }   
