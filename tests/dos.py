@@ -49,7 +49,7 @@ def stress_test(url, duration):
             
             # Throttle slightly: 10 requests every 0.1 seconds = ~100 req/sec
             elapsed = time.time() - loop_start
-            time.sleep(max(0.0, 0.1 - elapsed))
+            time.sleep(max(0.0, 0.001 - elapsed))
 
         # Gather remaining results
         print("Finishing remaining requests...")
