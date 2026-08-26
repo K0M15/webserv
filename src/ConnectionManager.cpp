@@ -158,12 +158,12 @@ void ConnectionManager::deleteExpiredSessions()
         std::optional<SessionInfo> session = m_activeSessions.get(sessionIds[i]);
         if (!session.has_value())
             continue;
-
+#ifdef DEBUG
         std::cout << sessionIds[i] 
                   << " expires in " 
                   << (session->expiresAt - now) 
                   << " seconds." << std::endl;
-        
+#endif        
         if (now > session->expiresAt)
             m_activeSessions.del(sessionIds[i]);
     }
