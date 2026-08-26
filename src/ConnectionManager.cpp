@@ -894,13 +894,24 @@ void ConnectionManager::onCGIComplete(int fd)
     }
     else
     {
+        // https://www.rfc-editor.org/info/rfc3875/#section-6.2  
         size_t header_end = raw.find("\r\n\r\n");
+        size_t header_len = 4;
+        if (header_end == std::string::npos)
+        {
+            header_end = raw.find("\n\n");
+            header_len = 2;
+        }
+
         std::string body = (header_end != std::string::npos)
-                               ? raw.substr(header_end + 4)
+                               ? raw.substr(header_end + header_len)
                                : raw;
 
         resp.setStatus(200);
         resp.setBody(body);
+
+        bool status_set = false;
+        bool has_location = false;
 
         if (header_end != std::string::npos)
         {
@@ -908,25 +919,57 @@ void ConnectionManager::onCGIComplete(int fd)
             size_t pos = 0;
             while (pos < cgi_headers.size())
             {
-                size_t nl = cgi_headers.find("\r\n", pos);
+                size_t nl = cgi_headers.find('\n', pos);
                 std::string line = (nl != std::string::npos)
                                        ? cgi_headers.substr(pos, nl - pos)
                                        : cgi_headers.substr(pos);
+                if (!line.empty() && line.back() == '\r')
+                    line.pop_back();
+
                 size_t colon = line.find(':');
                 if (colon != std::string::npos)
                 {
                     std::string key = line.substr(0, colon);
                     std::string val = line.substr(colon + 1);
-                    size_t first = val.find_first_not_of(' ');
-                    if (first != std::string::npos)
-                        val = val.substr(first);
-                    if (key != "Status" && !key.empty())
-                        resp.addHeader(key, val);
+
+                    size_t k_first = key.find_first_not_of(" \t");
+                    size_t k_last = key.find_last_not_of(" \t");
+                    if (k_first != std::string::npos)
+                        key = key.substr(k_first, (k_last - k_first + 1));
+
+                    size_t v_first = val.find_first_not_of(" \t");
+                    size_t v_last = val.find_last_not_of(" \t");
+                    if (v_first != std::string::npos)
+                        val = val.substr(v_first, (v_last - v_first + 1));
+                    else
+                        val = "";
+
+                    if (iequals(key, "status"))
+                    {
+                        unsigned long code = 0;
+                        auto r = std::from_chars(val.data(), val.data() + val.size(), code);
+                        if (r.ec == std::errc() && code >= 100 && code <= 599)
+                        {
+                            resp.setStatus(static_cast<int>(code));
+                            status_set = true;
+                        }
+                    }
+                    else
+                    {
+                        if (iequals(key, "location"))
+                            has_location = true;
+                        if (!key.empty())
+                            resp.addHeader(key, val);
+                    }
                 }
                 if (nl == std::string::npos)
                     break;
-                pos = nl + 2;
+                pos = nl + 1;
             }
+        }
+        if (has_location && !status_set)
+        {
+            resp.setStatus(302);
         }
     }
     sendResponse(conn, resp);
