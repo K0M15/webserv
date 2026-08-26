@@ -235,6 +235,7 @@ Makefile   build + test targets
 - [RFC 9112 — HTTP/1.1](https://httpwg.org/specs/rfc9112.html)
 - [MDN Web Docs — HTTP](https://developer.mozilla.org/en-US/docs/Web/HTTP)
 - [nginx documentation](https://nginx.org/en/docs/) — reference for configuration style and routing/vhost behaviour
+- [RFC 3875 - The Common Gateway Interface Version 1.1](https://www.rfc-editor.org/info/rfc3875/#section-4)
 
 ## Further Infos, not implemented:
 
