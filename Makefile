@@ -97,6 +97,9 @@ testWebserverSettings: createTestDIR
 testExpect: createTestDIR
 	$(CXX) $(CXXFLAGS) src/ConnectionManager.cpp src/Request.cpp src/Chunked.cpp src/URL.cpp src/PathUtils.cpp src/PollHandler.cpp src/HttpResponse.cpp src/HttpStatusReason.cpp src/WebserverSettings.cpp src/CGIHandler.cpp tests/testExpect.cpp -o bin/testExpect
 
+testCGI: createTestDIR
+	$(CXX) $(CXXFLAGS) src/ConnectionManager.cpp src/CGIHandler.cpp src/Request.cpp src/Chunked.cpp src/URL.cpp src/PathUtils.cpp src/PollHandler.cpp src/HttpResponse.cpp src/HttpStatusReason.cpp src/WebserverSettings.cpp tests/testCGI.cpp -o bin/testCGI
+
 tests: testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI testExpect
 	./bin/testRequest tests/sample_request.txt
 	./bin/testURL

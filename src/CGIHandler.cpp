@@ -72,7 +72,7 @@ void setupSignalfd()
         QUERY_STRING         everything after '?', raw (req.getURL().getRawQuery())
         SCRIPT_NAME          virtual path of the script
         SCRIPT_FILENAME      absolute filesystem path (m_filePath) — php-cgi requires it
-        PATH_INFO            extra path after the script name ("" for now)
+        PATH_INFO            extra path after the script name (eg. script.py/data/dev)
         PATH_TRANSLATED      root + PATH_INFO (may be omitted)
         CONTENT_TYPE         from request header, only if present
         CONTENT_LENGTH       from request header, only if present
@@ -84,6 +84,8 @@ void setupSignalfd()
         PATH                 interpreter search path for the script itself
         DOCUMENT_ROOT        settings->root
         REDIRECT_STATUS=200  php-cgi refuses to run without this
+    
+    RFC https://www.rfc-editor.org/info/rfc3875/#section-4
 */
 
 static std::string convHeaderKey(const std::string& value){
@@ -176,6 +178,69 @@ void CGIHandler::setEnv(){
     m_env.push_back(nullptr);
 }
 
+CGIHandler::CGIHandler(
+    const std::string filePath,
+    const std::string iPath,
+    const Request req,
+    const Connection& conn,
+    std::function<void()> onComplete,
+    const std::string scriptName,
+    const std::string pathInfo,
+    const std::string pathTranslated
+) : m_filePath(filePath), m_iPath(iPath), m_req(req), m_conn(conn),
+    m_scriptName(scriptName), m_pathInfo(pathInfo), m_pathTranslated(pathTranslated),
+    m_env_strings(), m_env(), m_output(),
+    m_maxOutputSize(conn.settings ? conn.settings->max_cgi_output : DEFAULT_MAX_CGI_OUTPUT),
+    m_startTime(std::time(nullptr)),
+    m_exitStatus(0), m_pid(-1),
+    m_stdin_fd(-1), m_stdout_fd(-1),
+    m_done(false), m_output_drained(false), m_status_collected(false),
+    m_output_exceeded(false), m_timed_out(false),
+    m_onComplete(onComplete)
+{
+    if (m_scriptName.empty())
+    {
+        std::unordered_map<std::string, std::string> interpreters;
+        if (m_conn.settings && !m_conn.settings->cgi_ext_interpreter.empty())
+            interpreters = m_conn.settings->cgi_ext_interpreter;
+
+        std::string fileExt;
+        size_t dot = m_filePath.rfind('.');
+        if (dot != std::string::npos)
+            fileExt = m_filePath.substr(dot);
+        if (!fileExt.empty() && interpreters.find(fileExt) == interpreters.end())
+            interpreters[fileExt] = m_iPath;
+
+        std::string s_name, p_info, matched_ext;
+        if (PathUtils::splitPathInfo(m_req.getURL().str(), interpreters, s_name, p_info, matched_ext))
+        {
+            m_scriptName = s_name;
+            m_pathInfo = p_info;
+            if (m_pathTranslated.empty() && !m_pathInfo.empty())
+            {
+                std::string root = m_conn.settings ? m_conn.settings->root : "";
+                m_pathTranslated = PathUtils::translatePath(root, m_pathInfo);
+            }
+        }
+        else
+        {
+            m_scriptName = PathUtils::stripQuery(m_req.getURL().str());
+            m_pathInfo = "";
+            m_pathTranslated = "";
+        }
+    }
+    else
+    {
+        if (m_pathTranslated.empty() && !m_pathInfo.empty())
+        {
+            std::string root = m_conn.settings ? m_conn.settings->root : "";
+            m_pathTranslated = PathUtils::translatePath(root, m_pathInfo);
+        }
+    }
+    setEnv();
+    spawnCGI();
+}
+
 void CGIHandler::spawnCGI(){
     int stdin_pipe[2];
     int stdout_pipe[2];
@@ -183,16 +248,12 @@ void CGIHandler::spawnCGI(){
     if (pipe2(stdin_pipe, O_CLOEXEC) < 0 || pipe2(stdout_pipe, O_CLOEXEC) < 0)
         return;
 
-    // Do not leak the client socket into the CGI child (it would keep the
-    // connection open after the script exits). fcntl(-1,...) is a harmless EBADF.
-    // we should do that on all the fds on opening them
     fcntl(m_conn.fd, F_SETFD, FD_CLOEXEC);
 
     pid_t pid = fork();
     if (pid < 0)
         throw std::runtime_error("CGI Handler: Fork not successful");
     setupSignalfd();
-    
 
     if (pid == 0)
     {
@@ -226,6 +287,8 @@ void CGIHandler::spawnCGI(){
     fcntl(stdout_pipe[0], F_SETFL, O_NONBLOCK);
 
     m_pid = pid;
+    m_stdout_fd = stdout_pipe[0];
+    m_stdin_fd = stdin_pipe[1];
 
     // Setup exit handler
     g_pending[m_pid] = [this](int status){
@@ -237,18 +300,31 @@ void CGIHandler::spawnCGI(){
     const std::string& body = m_req.getBody();
     PollHandler& poll = PollHandler::getInstance();
 
-
-    auto drain = [this, stdout_pipe](){ // readable && on_close
+    auto drain = [this](){ // readable && on_close
+        if (m_stdout_fd < 0) return;
         char buf[CGI_BUFFER_SIZE];
         ssize_t n;
-        while ((n = read(stdout_pipe[0], buf, sizeof(buf))) > 0)
+        while ((n = read(m_stdout_fd, buf, sizeof(buf))) > 0)
+        {
             m_output.append(buf, static_cast<size_t>(n));
+            if (m_output.size() > m_maxOutputSize)
+            {
+                m_output_exceeded = true;
+                killProcess();
+                return;
+            }
+        }
 
         if (n == 0) // EOF: child closed stdout (or exited)
         {
             m_output_drained = true;
-            close(stdout_pipe[0]);
-            PollHandler::getInstance().unsubscribe(stdout_pipe[0]);
+            if (m_stdout_fd >= 0)
+            {
+                int fd = m_stdout_fd;
+                m_stdout_fd = -1;
+                PollHandler::getInstance().unsubscribe(fd);
+                close(fd);
+            }
 
             // Common case: the child already exited, reap it right now.
             pid_t reaped = waitpid(m_pid, &m_exitStatus, WNOHANG);
@@ -261,24 +337,70 @@ void CGIHandler::spawnCGI(){
         }
     };
 
-    poll.subscribe_read(stdout_pipe[0], drain, drain);
+    poll.subscribe_read(m_stdout_fd, drain, drain);
 
-    poll.subscribe_write(stdin_pipe[1],
-        [stdin_pipe](){ // close
-            PollHandler::getInstance().unsubscribe(stdin_pipe[1]);
+    int stdin_fd = m_stdin_fd;
+    poll.subscribe_write(m_stdin_fd,
+        [stdin_fd](){ // close
+            PollHandler::getInstance().unsubscribe(stdin_fd);
         },
-        [body, stdin_pipe](){ // writeable
+        [this, body, stdin_fd](){ // writeable
+            if (m_stdin_fd < 0) return;
             size_t off = 0;
             while (off < body.size())
             {
-                ssize_t n = write(stdin_pipe[1], body.data() + off, body.size() - off);
+                ssize_t n = write(stdin_fd, body.data() + off, body.size() - off);
                 if (n <= 0) break;
                 off += static_cast<size_t>(n);
             }
-            close(stdin_pipe[1]); // close to start script
-            PollHandler::getInstance().unsubscribe(stdin_pipe[1]);
+            m_stdin_fd = -1;
+            PollHandler::getInstance().unsubscribe(stdin_fd);
+            close(stdin_fd); // close to start script
         }
     );
+}
+
+void CGIHandler::killProcess()
+{
+    if (m_stdout_fd >= 0)
+    {
+        int fd = m_stdout_fd;
+        m_stdout_fd = -1;
+        PollHandler::getInstance().unsubscribe(fd);
+        close(fd);
+    }
+    if (m_stdin_fd >= 0)
+    {
+        int fd = m_stdin_fd;
+        m_stdin_fd = -1;
+        PollHandler::getInstance().unsubscribe(fd);
+        close(fd);
+    }
+    if (m_pid > 0)
+    {
+        kill(m_pid, SIGKILL);
+        int status = 0;
+        waitpid(m_pid, &status, WNOHANG);
+        m_exitStatus = status;
+        g_pending.erase(m_pid);
+        m_status_collected = true;
+    }
+    m_output_drained = true;
+    finish();
+}
+
+bool CGIHandler::checkTimeout(int timeout_seconds)
+{
+    if (m_done)
+        return false;
+    time_t now = std::time(nullptr);
+    if (now - m_startTime >= timeout_seconds)
+    {
+        m_timed_out = true;
+        killProcess();
+        return true;
+    }
+    return false;
 }
 
 void CGIHandler::finish()
@@ -291,6 +413,24 @@ void CGIHandler::finish()
 
 CGIHandler::~CGIHandler()
 {
+    if (m_stdin_fd >= 0)
+    {
+        int fd = m_stdin_fd;
+        m_stdin_fd = -1;
+        PollHandler::getInstance().unsubscribe(fd);
+        close(fd);
+    }
+    if (m_stdout_fd >= 0)
+    {
+        int fd = m_stdout_fd;
+        m_stdout_fd = -1;
+        PollHandler::getInstance().unsubscribe(fd);
+        close(fd);
+    }
     if (m_pid > 0)
+    {
         g_pending.erase(m_pid);
+        kill(m_pid, SIGKILL);
+        waitpid(m_pid, nullptr, WNOHANG);
+    }
 }

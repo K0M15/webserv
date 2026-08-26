@@ -66,6 +66,10 @@
 # define DEFAULT_KEEP_ALIVE_TIMEOUT 60
 #endif
 
+#ifndef DEFAULT_CGI_TIMEOUT
+# define DEFAULT_CGI_TIMEOUT 10
+#endif
+
 // Buffer Sizes
 #ifndef CGI_BUFFER_SIZE
 # define CGI_BUFFER_SIZE 4096

@@ -57,7 +57,10 @@ private:
 
 
     bool    tryCGI(int fd, const std::string& filePath,
-                   const std::string& interpreter, const Request& req);
+                   const std::string& interpreter, const Request& req,
+                   const std::string& scriptName = "",
+                   const std::string& pathInfo = "",
+                   const std::string& pathTranslated = "");
     void    onCGIComplete(int fd);
 
     void    handleGet(Connection& conn, const std::string& root,

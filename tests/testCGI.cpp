@@ -110,6 +110,9 @@ int main(int argc, char* argv[]) {
     check("GET: SERVER_PORT=8080", contains(get.out, "SERVER_PORT=8080"));
     check("GET: SERVER_NAME=localhost", contains(get.out, "SERVER_NAME=localhost"));
     check("GET: REMOTE_ADDR=127.0.0.1", contains(get.out, "REMOTE_ADDR=127.0.0.1"));
+    check("GET: SCRIPT_NAME=/echo_env.py", contains(get.out, "SCRIPT_NAME=/echo_env.py"));
+    check("GET: PATH_INFO empty", contains(get.out, "PATH_INFO=\n") || contains(get.out, "PATH_INFO=\r\n"));
+    check("GET: PATH_TRANSLATED empty", contains(get.out, "PATH_TRANSLATED=\n") || contains(get.out, "PATH_TRANSLATED=\r\n"));
     check("GET: HTTP_USER_AGENT passed",
         contains(get.out, "HTTP_USER_AGENT=webserv-test/1.0"));
     check("GET: HTTP_COOKIE passed", contains(get.out, "HTTP_COOKIE=session=abc123"));
@@ -118,6 +121,27 @@ int main(int argc, char* argv[]) {
     check("GET: REDIRECT_STATUS=200", contains(get.out, "REDIRECT_STATUS=200"));
     check("GET: no HTTP_CONTENT_TYPE (must stay CONTENT_TYPE)",
         !contains(get.out, "HTTP_CONTENT_TYPE"));
+
+    // --------------- GET with PATH_INFO and PATH_TRANSLATED ---------------
+    const std::string getPathInfoRequest =
+        "GET /echo_env.py/extra/path/info?key=value HTTP/1.1\r\n"
+        "Host: localhost:8080\r\n"
+        "\r\n";
+
+    CGIResult pathInfoRes = runCGI(getPathInfoRequest, script);
+    std::cout << "=== GET /echo_env.py/extra/path/info?key=value ===" << std::endl;
+    std::cout << "exit status: " << pathInfoRes.status
+              << " (clean exit: " << (exitedCleanly(pathInfoRes.status) ? "yes" : "no") << ")"
+              << std::endl;
+    std::cout << "--- CGI output ---" << std::endl;
+    std::cout << pathInfoRes.out << std::endl;
+    std::cout << "------------------" << std::endl;
+
+    check("PATH_INFO: cgi exited 0", exitedCleanly(pathInfoRes.status));
+    check("PATH_INFO: SCRIPT_NAME=/echo_env.py", contains(pathInfoRes.out, "SCRIPT_NAME=/echo_env.py"));
+    check("PATH_INFO: PATH_INFO=/extra/path/info", contains(pathInfoRes.out, "PATH_INFO=/extra/path/info"));
+    check("PATH_INFO: PATH_TRANSLATED=tests/extra/path/info", contains(pathInfoRes.out, "PATH_TRANSLATED=tests/extra/path/info"));
+    check("PATH_INFO: QUERY_STRING=key=value", contains(pathInfoRes.out, "QUERY_STRING=key=value"));
 
     // --------------- POST with a request body ---------------
     const std::string postRequest =
@@ -148,6 +172,43 @@ int main(int argc, char* argv[]) {
         contains(post.out, "[stdin]") && contains(post.out, "name=alain&lang=cpp&action=run"));
     check("POST: no HTTP_CONTENT_TYPE", !contains(post.out, "HTTP_CONTENT_TYPE"));
     check("POST: no HTTP_CONTENT_LENGTH", !contains(post.out, "HTTP_CONTENT_LENGTH"));
+
+    // --------------- max_cgi_output Cap Enforcement Test ---------------
+    {
+        Request req = Request::fromString("GET /echo_env.py HTTP/1.1\r\nHost: localhost:8080\r\n\r\n");
+        WebserverSettings settings;
+        settings.max_cgi_output = 50; // Cap at 50 bytes
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        std::vector<const WebserverSettings *> set{&settings};
+        Connection conn(-1, addr, set);
+
+        CGIHandler handler(script, "/usr/bin/python3", req, conn, [](){});
+        PollHandler& poll = PollHandler::getInstance();
+        poll.setTimeout(50);
+        for (int i = 0; i < 50 && !handler.isDone(); ++i)
+            poll.checkFDs();
+        poll.setTimeout(3000);
+
+        check("max_cgi_output: detected output exceeded cap", handler.isOutputExceeded());
+        check("max_cgi_output: handler is marked done", handler.isDone());
+    }
+
+    // --------------- Process Execution Deadline (SIGKILL) Test ---------------
+    {
+        Request req = Request::fromString("GET /echo_env.py HTTP/1.1\r\nHost: localhost:8080\r\n\r\n");
+        WebserverSettings settings;
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        std::vector<const WebserverSettings *> set{&settings};
+        Connection conn(-1, addr, set);
+
+        CGIHandler handler(script, "/usr/bin/python3", req, conn, [](){});
+        bool timed_out = handler.checkTimeout(0); // Trigger deadline timeout immediately
+        check("timeout: checkTimeout returned true", timed_out);
+        check("timeout: handler marked as timed out", handler.isTimedOut());
+        check("timeout: handler is marked done", handler.isDone());
+    }
 
     std::cout << std::endl << g_passed << " passed, " << g_failed << " failed" << std::endl;
     return g_failed == 0 ? 0 : 1;

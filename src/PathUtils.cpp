@@ -84,3 +84,73 @@ PathUtils::ResolveResult PathUtils::resolveUnder(const std::string& base, const 
     out = prefix + "/" + path;
     return RESOLVE_OK;
 }
+
+bool PathUtils::splitPathInfo(
+    const std::string& url_path,
+    const std::unordered_map<std::string, std::string>& interpreters,
+    std::string& script_name,
+    std::string& path_info,
+    std::string& matched_ext)
+{
+    script_name.clear();
+    path_info.clear();
+    matched_ext.clear();
+
+    if (interpreters.empty())
+        return false;
+
+    std::string path = stripQuery(url_path);
+    if (path.empty())
+        return false;
+
+    size_t pos = 0;
+    while (pos < path.size())
+    {
+        size_t next_slash = path.find('/', pos);
+        std::string segment_prefix = (next_slash == std::string::npos)
+                                         ? path
+                                         : path.substr(0, next_slash);
+
+        if (!segment_prefix.empty())
+        {
+            for (const auto& [ext, interp] : interpreters)
+            {
+                (void)interp;
+                if (ext.empty())
+                    continue;
+                if (segment_prefix.size() >= ext.size() &&
+                    segment_prefix.compare(segment_prefix.size() - ext.size(), ext.size(), ext) == 0)
+                {
+                    script_name = segment_prefix;
+                    path_info = (next_slash == std::string::npos)
+                                    ? ""
+                                    : path.substr(next_slash);
+                    matched_ext = ext;
+                    return true;
+                }
+            }
+        }
+
+        if (next_slash == std::string::npos)
+            break;
+        pos = next_slash + 1;
+    }
+    return false;
+}
+
+std::string PathUtils::translatePath(const std::string& root, const std::string& path_info)
+{
+    if (path_info.empty())
+        return "";
+    if (root.empty())
+        return path_info;
+
+    std::string clean_root = root;
+    while (!clean_root.empty() && clean_root.back() == '/')
+        clean_root.pop_back();
+
+    std::string clean_info = path_info;
+    if (!clean_info.empty() && clean_info.front() == '/')
+        return clean_root + clean_info;
+    return clean_root + "/" + clean_info;
+}

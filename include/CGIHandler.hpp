@@ -19,14 +19,23 @@ private:
     const std::string m_iPath;
     const Request m_req;
     const Connection& m_conn;
+    std::string m_scriptName;
+    std::string m_pathInfo;
+    std::string m_pathTranslated;
     std::vector<std::string> m_env_strings;   // owns the "NAME=value" memory
     std::vector<char*> m_env;                 // points into m_env_strings
     std::string m_output;
+    size_t m_maxOutputSize;
+    time_t m_startTime;
     int m_exitStatus;
     pid_t m_pid;
+    int m_stdin_fd;
+    int m_stdout_fd;
     bool m_done;
     bool m_output_drained;
     bool m_status_collected;
+    bool m_output_exceeded;
+    bool m_timed_out;
     std::function<void()> m_onComplete;
 public:
     CGIHandler(
@@ -34,18 +43,21 @@ public:
         const std::string iPath,
         const Request req,
         const Connection& conn,
-        std::function<void()> onComplete
-    ) : m_filePath(filePath), m_iPath(iPath), m_req(req), m_conn(conn),
-        m_env_strings(), m_env(), m_output(), m_exitStatus(0), m_pid(-1),
-        m_done(false), m_output_drained(false), m_status_collected(false),
-        m_onComplete(onComplete)
-    {
-        setEnv();
-        spawnCGI();
-    };
+        std::function<void()> onComplete,
+        const std::string scriptName = "",
+        const std::string pathInfo = "",
+        const std::string pathTranslated = ""
+    );
     ~CGIHandler();
 
     const std::string& getOutput() const { return m_output; }
     int getExitStatus() const { return m_exitStatus; }
-    bool isDone(){ return m_done; }
+    const std::string& getScriptName() const { return m_scriptName; }
+    const std::string& getPathInfo() const { return m_pathInfo; }
+    const std::string& getPathTranslated() const { return m_pathTranslated; }
+    bool isDone() const { return m_done; }
+    bool isOutputExceeded() const { return m_output_exceeded; }
+    bool isTimedOut() const { return m_timed_out; }
+    bool checkTimeout(int timeout_seconds = 10);
+    void killProcess();
 };

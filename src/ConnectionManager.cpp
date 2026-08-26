@@ -794,17 +794,24 @@ void ConnectionManager::handleRequest(Connection &conn, const Request &req)
     }
 
     std::cout << method_name(m) << " " << url_file;
-    std::string ext = req.getURL().getFileExt();
     auto &interpreters = (location && !location->cgi_ext_interpreter.empty())
                              ? location->cgi_ext_interpreter
                              : conn.settings->cgi_ext_interpreter;
-    auto interp = interpreters.find(ext);
-    if (interp != interpreters.end())
+    std::string script_name, path_info, matched_ext;
+    // if we find a script
+    if (PathUtils::splitPathInfo(url_file, interpreters, script_name, path_info, matched_ext))
     {
-        if (tryCGI(conn.fd, root + url_file, interp->second, req))
+        
+        auto interp = interpreters.find(matched_ext);
+        if (interp != interpreters.end())
         {
-            std::cout << " (CGI)";
-            return;
+            std::string script_file_path = root + script_name;
+            std::string path_translated = PathUtils::translatePath(root, path_info);
+            if (tryCGI(conn.fd, script_file_path, interp->second, req, script_name, path_info, path_translated))
+            {
+                std::cout << " (CGI)";
+                return;
+            }
         }
     }
 
@@ -854,7 +861,10 @@ void ConnectionManager::handleRequest(Connection &conn, const Request &req)
 
 bool ConnectionManager::tryCGI(int fd, const std::string &filePath,
                                const std::string &interpreter,
-                               const Request &req)
+                               const Request &req,
+                               const std::string &scriptName,
+                               const std::string &pathInfo,
+                               const std::string &pathTranslated)
 {
     auto it = m_connections.find(fd);
     if (it == m_connections.end())
@@ -866,7 +876,8 @@ bool ConnectionManager::tryCGI(int fd, const std::string &filePath,
         conn.cgi_handler = std::make_unique<CGIHandler>(
             filePath, interpreter, req, conn,
             [this, fd]()
-            { onCGIComplete(fd); });
+            { onCGIComplete(fd); },
+            scriptName, pathInfo, pathTranslated);
         return true;
     }
     catch (const std::exception &e)
@@ -888,9 +899,10 @@ void ConnectionManager::onCGIComplete(int fd)
     const std::string &raw = conn.cgi_handler->getOutput();
 
     HttpResponse resp;
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 || conn.cgi_handler->isOutputExceeded() || conn.cgi_handler->isTimedOut())
     {
-        resp = errorResponse(502, conn.settings, nullptr);
+        int errCode = conn.cgi_handler->isTimedOut() ? 504 : 502;
+        resp = errorResponse(errCode, conn.settings, nullptr);
     }
     else
     {
@@ -1294,7 +1306,12 @@ void ConnectionManager::checkTimeouts(int timeout_seconds)
     auto it = m_connections.begin();
     while (it != m_connections.end())
     {
-        if (now - it->second.last_active > timeout_seconds)
+        Connection &conn = it->second;
+        if (conn.cgi_handler && !conn.cgi_handler->isDone())
+        {
+            conn.cgi_handler->checkTimeout(DEFAULT_CGI_TIMEOUT);
+        }
+        if (now - conn.last_active > timeout_seconds)
         {
             int fd = it->first;
             ++it;
