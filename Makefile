@@ -86,7 +86,7 @@ testConfigReader: createTestDIR
 	$(CXX) $(CXXFLAGS) src/ConfigReader.cpp src/WebserverSettings.cpp tests/testConfigReader.cpp -o bin/testConfigReader
 
 testHttpResponse: createTestDIR
-	$(CXX) $(CXXFLAGS) src/HttpResponse.cpp src/HttpStatusReason.cpp tests/testHttpResponse.cpp -o bin/testHttpResponse
+	$(CXX) $(CXXFLAGS) src/HttpResponse.cpp src/HttpStatusReason.cpp src/PathUtils.cpp tests/testHttpResponse.cpp -o bin/testHttpResponse
 
 testHttpStatusReason: createTestDIR
 	$(CXX) $(CXXFLAGS) src/HttpStatusReason.cpp tests/testHttpStatusReason.cpp -o bin/testHttpStatusReason
