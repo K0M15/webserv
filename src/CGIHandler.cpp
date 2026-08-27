@@ -196,7 +196,7 @@ CGIHandler::CGIHandler(
     m_stdin_fd(-1), m_stdout_fd(-1),
     m_done(false), m_output_drained(false), m_status_collected(false),
     m_output_exceeded(false), m_timed_out(false),
-    m_onComplete(onComplete), m_input_read_offset(0)
+    m_onComplete(onComplete), m_input_write_offset(0)
 {
     if (m_scriptName.empty())
     {
@@ -346,11 +346,11 @@ void CGIHandler::spawnCGI(){
         },
         [this, body, stdin_fd](){ // writeable
             if (m_stdin_fd < 0) return;
-            while (this->m_input_read_offset < body.size())
+            while (this->m_input_write_offset < body.size())
             {
-                ssize_t n = write(stdin_fd, body.data() + this->m_input_read_offset, body.size() - this->m_input_read_offset);
+                ssize_t n = write(stdin_fd, body.data() + this->m_input_write_offset, body.size() - this->m_input_write_offset);
                 if (n <= 0) break;
-                this->m_input_read_offset += static_cast<size_t>(n);
+                this->m_input_write_offset += static_cast<size_t>(n);
             }
             m_stdin_fd = -1;
             PollHandler::getInstance().unsubscribe(stdin_fd);

@@ -22,6 +22,7 @@
 #include <iomanip>
 #include <sys/stat.h>
 
+
 #pragma region cookies
 struct SessionCookie
 {
@@ -195,14 +196,14 @@ bool    ConnectionManager::handleRole(Connection& conn, const Request& req, cons
 
 #pragma endregion
 
-Connection::Connection(int fd, const sockaddr_in &a, const std::vector<const WebserverSettings *> candidates)
-    : fd(fd), addr(a), state(READING),
-      headers_complete(false), content_length(0),
-      header_end(0), chunked(false), sent_100_continue(false),
-      bytes_sent(0), keep_alive(true),
-      last_active(std::time(nullptr)),
-      settings(candidates.empty() ? nullptr : candidates.front()),
-      candidates(candidates) {}
+Connection::Connection(int fd, const sockaddr_in& a, const std::vector<const WebserverSettings*> candidates)
+:   fd(fd), addr(a), state(READING),
+    headers_complete(false), content_length(0),
+    header_end(0), chunked(false), is_head_request(false),
+    bytes_sent(0), keep_alive(false),
+    last_active(std::time(nullptr)), 
+    settings(candidates.empty() ? nullptr : candidates.front()),
+    candidates(candidates){}
 
 ConnectionManager::ConnectionManager()
 {
@@ -985,20 +986,18 @@ void ConnectionManager::handleHead(Connection &conn, const std::string &root,
     {
         file.close();
 
+        
+        HttpResponse resp;
         struct stat st;
         if (stat(path.c_str(), &st) != 0)
         {
-            sendResponse(conn, errorResponse(500, conn.settings, location));
+            sendResponse(conn, HttpResponse::errorResponse(500, conn.settings, location));
             return;
+        }else{
+            resp.addHeader("Last-Modified", HttpResponse::httpDate(st.st_mtime));
         }
-
-        HttpResponse resp;
         resp.setStatus(200);
         resp.addHeader("Content-Type", PathUtils::mimeType(path));
-
-        struct stat st;
-        if (stat(path.c_str(), &st) == 0)
-            resp.addHeader("Last-Modified", HttpResponse::httpDate(st.st_mtime));
         resp.addHeader("Content-Length", std::to_string(st.st_size));
         sendResponse(conn, resp);
         return;

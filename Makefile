@@ -114,7 +114,7 @@ tests: testRequest testURL testChunked testPollHandler testConfigReader testHttp
 	./bin/testWebserverSettings
 	./bin/testCGI
 	./bin/testHead
-  ./bin/testExpect
+	./bin/testExpect
 
 re: fclean all
 
