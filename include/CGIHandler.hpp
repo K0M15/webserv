@@ -37,6 +37,7 @@ private:
     bool m_output_exceeded;
     bool m_timed_out;
     std::function<void()> m_onComplete;
+    size_t m_input_read_offset;
 public:
     CGIHandler(
         const std::string filePath,

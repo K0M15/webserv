@@ -70,10 +70,10 @@ Request Request::fromString(const std::string& rawRequest)
             throw std::runtime_error("Malformed request line");
         if (req.version != HTTP_VERSION)
             throw HTTPVersionNotSupportedException(std::string(HTTP_VERSION) + " required");
-        if (req.method != "GET" && req.method != "POST" 
-            && req.method != "DELETE" && req.method != "PUT"
-            && req.method != "PATCH")
-            throw HTTPMethodNotAllowedException("Method not supported");
+        // if (req.method != "GET" && req.method != "POST" 
+        //     && req.method != "DELETE" && req.method != "PUT"
+        //     && req.method != "PATCH" && req.method != )
+        //     throw HTTPMethodNotAllowedException("Method not supported");
     }
     //parse headers, last line is empty
     while (std::getline(stream, line) && line != "\r" && !line.empty())

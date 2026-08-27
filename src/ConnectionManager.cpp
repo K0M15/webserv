@@ -829,15 +829,21 @@ void ConnectionManager::handleRequest(Connection &conn, const Request &req)
             handlePost(conn, req, location);
             break;
         case DELETE:
+#ifndef DISABLE_DELETE_AUTH
             if (handleRole(conn, req, location, "admin"))
+#endif
                 handleDelete(conn, root, url_path, location);
             break;
         case PUT:
+#ifndef DISABLE_PUT_AUTH
             if (handleRole(conn, req, location, "admin"))
+#endif
                 handlePut(conn, root, req,url_path, location);
             break;
         case PATCH:
+#ifndef DISABLE_PATCH_AUTH
             if (handleRole(conn, req, location, "admin"))
+#endif
                 handlePatch(conn, root, url_path, location);
             break;
         case OPTIONS:
