@@ -37,15 +37,6 @@ struct Connection {
     time_t              last_active;
     const WebserverSettings* settings;
     std::vector<const WebserverSettings*> candidates;
-
     std::unique_ptr<CGIHandler> cgi_handler;
-
-    Connection::Connection(int fd, const sockaddr_in& a, const std::vector<const WebserverSettings*> candidates)
-    :   fd(fd), addr(a), state(READING),
-        headers_complete(false), content_length(0),
-        header_end(0), chunked(false), is_head_request(false),
-        bytes_sent(0), keep_alive(false),
-        last_active(std::time(nullptr)), 
-        settings(candidates.empty() ? nullptr : candidates.front()),
-        candidates(candidates){}
+    Connection(int fd, const sockaddr_in& a, const std::vector<const WebserverSettings*> candidates);
 };
