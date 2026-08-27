@@ -111,13 +111,56 @@ static void test_expect_invalid_expectation() {
     delete conn.settings;
 }
 
+static void test_chunked_keep_alive_buffer_cleanup() {
+    std::string first_chunked =
+        "POST /upload HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "5\r\nhello\r\n0\r\n\r\n";
+    std::string second_request =
+        "GET /index.html HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "\r\n";
+
+    ConnectionManager cm;
+    Connection conn = createDummyConnection(first_chunked + second_request, 1000);
+    RequestReadState state = cm.isRequestComplete(conn);
+
+    check("Chunked: isRequestComplete returns COMPLETE for pipelined chunked request",
+          state == RequestReadState::COMPLETE);
+    check("Chunked: raw_body_length matches raw chunk framing size (15 bytes)",
+          conn.raw_body_length == 15);
+
+    // Simulate keep-alive buffer cleanup as done in onWritable
+    size_t consumed = conn.header_end + 4 + conn.raw_body_length;
+    conn.read_buffer.erase(0, consumed);
+
+    check("Chunked: leftover buffer starts exactly with second pipelined request",
+          conn.read_buffer == second_request);
+
+    // Reset connection state for next request
+    conn.headers_complete = false;
+    conn.content_length = 0;
+    conn.raw_body_length = 0;
+    conn.header_end = 0;
+    conn.chunked = false;
+
+    RequestReadState next_state = cm.isRequestComplete(conn);
+    check("Chunked: second pipelined request completes successfully",
+          next_state == RequestReadState::COMPLETE);
+
+    delete conn.settings;
+}
+
 int main() {
-    std::cout << "--- Expect: 100-continue Test Suite ---\n" << std::endl;
+    std::cout << "--- Expect & Chunked Keep-Alive Test Suite ---\n" << std::endl;
 
     test_expect_payload_too_large();
     test_expect_same_time_headers_and_payload();
     test_expect_partial_payload();
     test_expect_invalid_expectation();
+    test_chunked_keep_alive_buffer_cleanup();
 
     std::cout << "\n----------------------------------------" << std::endl;
     std::cout << "Results: " << g_passed << " passed, " << g_failed << " failed, "

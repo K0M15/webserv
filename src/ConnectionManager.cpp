@@ -198,8 +198,8 @@ bool    ConnectionManager::handleRole(Connection& conn, const Request& req, cons
 
 Connection::Connection(int fd, const sockaddr_in& a, const std::vector<const WebserverSettings*> candidates)
 :   fd(fd), addr(a), state(READING),
-    headers_complete(false), content_length(0),
-    header_end(0), chunked(false), is_head_request(false),
+    headers_complete(false), content_length(0), raw_body_length(0),
+    header_end(0), chunked(false), is_head_request(false), sent_100_continue(false),
     bytes_sent(0), keep_alive(false),
     last_active(std::time(nullptr)), 
     settings(candidates.empty() ? nullptr : candidates.front()),
@@ -362,7 +362,7 @@ void ConnectionManager::onWritable(int fd)
     {
         if (conn.keep_alive)
         {
-            size_t consumed = conn.header_end + 4 + conn.content_length;
+            size_t consumed = conn.header_end + 4 + conn.raw_body_length;
             if (conn.read_buffer.size() >= consumed)
                 conn.read_buffer.erase(0, consumed);
             else
@@ -373,6 +373,7 @@ void ConnectionManager::onWritable(int fd)
             conn.bytes_sent = 0;
             conn.headers_complete = false;
             conn.content_length = 0;
+            conn.raw_body_length = 0;
             conn.header_end = 0;
             conn.chunked = false;
             conn.is_head_request = false;
@@ -535,18 +536,24 @@ RequestReadState ConnectionManager::isRequestComplete(Connection &conn)
         case ChunkResult::TOO_LARGE:
             return RequestReadState::PAYLOAD_TOO_LARGE;
         case ChunkResult::COMPLETE:
-            return conn.read_buffer.size() >= body_start + consumed
-                       ? RequestReadState::COMPLETE
-                       : RequestReadState::INCOMPLETE;
+            if (conn.read_buffer.size() >= body_start + consumed)
+            {
+                conn.raw_body_length = consumed;
+                return RequestReadState::COMPLETE;
+            }
+            return RequestReadState::INCOMPLETE;
         }
     }
 
     size_t max = conn.settings ? conn.settings->max_body_size : DEFAULT_MAX_BODY_SIZE;
     if (conn.content_length > max)
         return RequestReadState::PAYLOAD_TOO_LARGE;
-    return conn.read_buffer.size() >= body_start + conn.content_length
-               ? RequestReadState::COMPLETE
-               : RequestReadState::INCOMPLETE;
+    if (conn.read_buffer.size() >= body_start + conn.content_length)
+    {
+        conn.raw_body_length = conn.content_length;
+        return RequestReadState::COMPLETE;
+    }
+    return RequestReadState::INCOMPLETE;
 }
 
 static Method parseMethod(const std::string &method)

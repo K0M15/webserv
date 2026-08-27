@@ -25,6 +25,7 @@ struct Connection {
     std::string         read_buffer;
     bool                headers_complete;
     size_t              content_length;
+    size_t              raw_body_length;
     size_t              header_end;
     bool                chunked;
     bool                is_head_request;
