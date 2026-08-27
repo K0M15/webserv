@@ -97,7 +97,10 @@ testWebserverSettings: createTestDIR
 testExpect: createTestDIR
 	$(CXX) $(CXXFLAGS) src/ConnectionManager.cpp src/Request.cpp src/Chunked.cpp src/URL.cpp src/PathUtils.cpp src/PollHandler.cpp src/HttpResponse.cpp src/HttpStatusReason.cpp src/WebserverSettings.cpp src/CGIHandler.cpp tests/testExpect.cpp -o bin/testExpect
 
-tests: testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI testExpect
+testHead: createTestDIR
+	$(CXX) $(CXXFLAGS) src/CGIHandler.cpp src/Request.cpp src/Chunked.cpp src/ConnectionManager.cpp src/PathUtils.cpp src/PollHandler.cpp src/HttpResponse.cpp src/HttpStatusReason.cpp tests/testHead.cpp -o bin/testHead
+
+tests: testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI testHead testExpect
 	./bin/testRequest tests/sample_request.txt
 	./bin/testURL
 	./bin/testChunked
@@ -107,11 +110,12 @@ tests: testRequest testURL testChunked testPollHandler testConfigReader testHttp
 	./bin/testHttpStatusReason
 	./bin/testWebserverSettings
 	./bin/testCGI
-	./bin/testExpect
+	./bin/testHead
+  ./bin/testExpect
+
+re: fclean all
 
 debug:
 	@$(MAKE) --no-print-directory re CXXFLAGS="$(CXXFLAGS) -DDEBUG"
 
-re: fclean all
-
-.PHONY: all clean fclean re testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI testExpect tests debug
+.PHONY: all clean fclean re testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI testExpect tests debug testHead
