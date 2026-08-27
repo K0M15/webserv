@@ -88,9 +88,6 @@ private:
     const WebserverSettings* resolveSettings(Connection& conn, const Request& req) const;
 
     void    sendResponse(Connection& conn, const HttpResponse& response);
-    HttpResponse errorResponse(unsigned int code,
-                               const WebserverSettings* settings,
-                               const LocationConfig* location);
     HttpStatusReason::Code checkRole(const Request &req, const std::string& requiredRole);
     void    handleLogin(Connection& conn, const Request& req);
     void    handleLogout(Connection& conn, const Request& req);

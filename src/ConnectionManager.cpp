@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <cstdlib>
 #include <iomanip>
+#include <sys/stat.h>
 
 #pragma region cookies
 
@@ -105,7 +106,7 @@ void ConnectionManager::handleLogin(Connection &conn, const Request &req)
         sendResponse(conn, resp);
         return ;
     }
-    sendResponse(conn, errorResponse(401, conn.settings, nullptr));
+    sendResponse(conn, HttpResponse::errorResponse(401, conn.settings, nullptr));
 }
 
 void ConnectionManager::handleLogout(Connection &conn, const Request &req)
@@ -187,7 +188,7 @@ bool    ConnectionManager::handleRole(Connection& conn, const Request& req, cons
     HttpStatusReason::Code authResult = checkRole(req, requiredRole);
     if (authResult != HttpStatusReason::Code::OK)
     {
-        sendResponse(conn, errorResponse(static_cast<unsigned int>(authResult), conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(static_cast<unsigned int>(authResult), conn.settings, location));
         return (false);
     }
     return (true);
@@ -297,7 +298,7 @@ void ConnectionManager::onReadable(int fd)
 
         if (header_len > conn.settings->max_header_size)
         {
-            HttpResponse resp = errorResponse(431, conn.settings, nullptr);
+            HttpResponse resp = HttpResponse::errorResponse(431, conn.settings, nullptr);
             resp.setKeepAlive(false);
             sendResponse(conn, resp);
             return;
@@ -316,14 +317,14 @@ void ConnectionManager::onReadable(int fd)
         unsigned int code = (state == RequestReadState::PAYLOAD_TOO_LARGE) ? 413
                             : (state == RequestReadState::NOT_IMPLEMENTED) ? 501
                                                                            : 400;
-        HttpResponse resp = errorResponse(code, conn.settings, nullptr);
+        HttpResponse resp = HttpResponse::errorResponse(code, conn.settings, nullptr);
         resp.setKeepAlive(false);
         sendResponse(conn, resp);
         return;
     }
     case RequestReadState::EXPECTATION_FAILED:
     {
-        HttpResponse resp = errorResponse(417, conn.settings, nullptr);
+        HttpResponse resp = HttpResponse::errorResponse(417, conn.settings, nullptr);
         resp.setKeepAlive(false);
         sendResponse(conn, resp);
         return;
@@ -547,41 +548,6 @@ RequestReadState ConnectionManager::isRequestComplete(Connection &conn)
                : RequestReadState::INCOMPLETE;
 }
 
-static const char *mimeType(const std::string &filename)
-{
-    auto pos = filename.rfind('.');
-    if (pos == std::string::npos)
-        return "application/octet-stream";
-    std::string ext = filename.substr(pos);
-    if (ext == ".html")
-        return "text/html";
-    if (ext == ".htm")
-        return "text/html";
-    if (ext == ".css")
-        return "text/css";
-    if (ext == ".js")
-        return "application/javascript";
-    if (ext == ".png")
-        return "image/png";
-    if (ext == ".jpg" || ext == ".jpeg")
-        return "image/jpeg";
-    if (ext == ".gif")
-        return "image/gif";
-    if (ext == ".ico")
-        return "image/x-icon";
-    if (ext == ".txt")
-        return "text/plain";
-    if (ext == ".pdf")
-        return "application/pdf";
-    if (ext == ".json")
-        return "application/json";
-    if (ext == ".xml")
-        return "application/xml";
-    if (ext == ".svg")
-        return "image/svg+xml";
-    return "application/octet-stream";
-}
-
 static Method parseMethod(const std::string &method)
 {
     if (method == "GET")
@@ -628,50 +594,6 @@ static std::string buildAllowHeader(const std::vector<Method> &methods)
         h += method_name(methods[i]);
     }
     return h;
-}
-
-HttpResponse ConnectionManager::errorResponse(
-    unsigned int code,
-    const WebserverSettings *settings,
-    const LocationConfig *location)
-{
-    const std::string *error_path = nullptr;
-    if (location)
-    {
-        auto it = location->error_page.find(code);
-        if (it != location->error_page.end())
-            error_path = &it->second;
-    }
-    if (!error_path)
-    {
-        auto it = settings->error_page.find(code);
-        if (it != settings->error_page.end())
-            error_path = &it->second;
-    }
-
-    if (error_path)
-    {
-        std::string root = (location && !location->root.empty())
-                               ? location->root
-                               : settings->root;
-        std::string full_path = root + *error_path;
-
-        std::ifstream file(full_path);
-        if (file.is_open())
-        {
-            std::stringstream ss;
-            ss << file.rdbuf();
-            file.close();
-
-            HttpResponse resp;
-            resp.setStatus(code);
-            resp.setBody(ss.str());
-            resp.addHeader("Content-Type", mimeType(full_path));
-            return resp;
-        }
-    }
-
-    return HttpResponse::error(code);
 }
 
 static std::string resolvePath(const std::string &root,
@@ -729,21 +651,21 @@ void ConnectionManager::handleRequestFD(int fd)
     }
     catch (const std::runtime_error& e)
     {
-        HttpResponse resp = errorResponse(400, conn.settings, nullptr);
+        HttpResponse resp = HttpResponse::errorResponse(400, conn.settings, nullptr);
         resp.setKeepAlive(false);
         conn.keep_alive = false;
         sendResponse(conn, resp);
     }
     catch (const Request::HTTPVersionNotSupportedException& e)
     {
-        HttpResponse resp = errorResponse(505, conn.settings, nullptr);
+        HttpResponse resp = HttpResponse::errorResponse(505, conn.settings, nullptr);
         resp.setKeepAlive(false);
         conn.keep_alive = false;
         sendResponse(conn, resp);
     }
     catch (const Request::HTTPMethodNotAllowedException& e)
     {
-        HttpResponse resp = errorResponse(405, conn.settings, nullptr);
+        HttpResponse resp = HttpResponse::errorResponse(501, conn.settings, nullptr);
         resp.setKeepAlive(false);
         conn.keep_alive = false;
         sendResponse(conn, resp);
@@ -786,7 +708,7 @@ void ConnectionManager::handleRequest(Connection &conn, const Request &req)
         const std::vector<Method> &allowed = (location && !location->methods.empty())
                                                  ? location->methods
                                                  : conn.settings->methods;
-        HttpResponse resp = errorResponse(405, conn.settings, location);
+        HttpResponse resp = HttpResponse::errorResponse(405, conn.settings, location);
         resp.addHeader("Allow", buildAllowHeader(allowed));
         resp.setKeepAlive(false);
         sendResponse(conn, resp);
@@ -855,13 +777,13 @@ void ConnectionManager::handleRequest(Connection &conn, const Request &req)
             break;
         }
         default:
-            sendResponse(conn, errorResponse(501, conn.settings, location));
+            sendResponse(conn, HttpResponse::errorResponse(501, conn.settings, location));
         }
     }
     catch (const std::exception &e)
     {
         std::cerr << e.what() << '\n';
-        sendResponse(conn, errorResponse(501, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(501, conn.settings, location));
     }
 }
 
@@ -908,7 +830,7 @@ void ConnectionManager::onCGIComplete(int fd)
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 || conn.cgi_handler->isOutputExceeded() || conn.cgi_handler->isTimedOut())
     {
         int errCode = conn.cgi_handler->isTimedOut() ? 504 : 502;
-        resp = errorResponse(errCode, conn.settings, nullptr);
+        resp = HttpResponse::errorResponse(errCode, conn.settings, nullptr);
     }
     else
     {
@@ -1009,7 +931,7 @@ void ConnectionManager::handleGet(Connection &conn, const std::string &root,
         HttpResponse resp;
         resp.setStatus(200);
         resp.setBody(ss.str());
-        resp.addHeader("Content-Type", mimeType(path));
+        resp.addHeader("Content-Type", PathUtils::mimeType(path));
 
         struct stat st;
         if (stat(path.c_str(), &st) == 0)
@@ -1023,12 +945,30 @@ void ConnectionManager::handleGet(Connection &conn, const std::string &root,
         return;
     }
 
-    if (url_path.back() == '/' && conn.settings->dirindex)
+    // check if dirindex is active and if we try to get a path
+    if (url_path.back() == '/' && (conn.settings->dirindex || (location && location->dirindex)))
     {
         sendResponse(conn, HttpResponse::dirindex(root + url_path, url_path));
         return;
     }
-    sendResponse(conn, errorResponse(404, conn.settings, location));
+    // check if it could be a directory without a "/" at the and, send a redirect
+    if (path.back() != '/'){
+        std::string check_path = path + "/";
+        struct stat buff;
+        if (::stat(check_path.c_str(), &buff)){
+            sendResponse(conn, HttpResponse::errorResponse(404, conn.settings, location));
+            return;
+        }
+        if (S_ISDIR(buff.st_mode)){
+            HttpResponse resp;
+            resp.setStatus(301);
+            resp.addHeader("Location", url_path + "/");
+            resp.setBody("<html><body>Moved Permanently: <a href=\"" + url_path + "/" + "\">" + url_path + "/" + "</a></body></html>");
+            sendResponse(conn, resp);
+            return;
+        }
+    }
+    sendResponse(conn, HttpResponse::errorResponse(404, conn.settings, location));
 }
 
 void ConnectionManager::handleHead(Connection &conn, const std::string &root,
@@ -1043,7 +983,7 @@ void ConnectionManager::handleHead(Connection &conn, const std::string &root,
         file.close();
         HttpResponse resp;
         resp.setStatus(200);
-        resp.addHeader("Content-Type", mimeType(path));
+        resp.addHeader("Content-Type", PathUtils::mimeType(path));
 
         struct stat st;
         if (stat(path.c_str(), &st) == 0)
@@ -1053,12 +993,29 @@ void ConnectionManager::handleHead(Connection &conn, const std::string &root,
         return;
     }
 
-    if (url_path.back() == '/' && conn.settings->dirindex)
+    if (url_path.back() == '/' && (conn.settings->dirindex || (location && location->dirindex)))
     {
         sendResponse(conn, HttpResponse::dirindex(root + url_path, url_path));
         return;
     }
-    sendResponse(conn, errorResponse(404, conn.settings, location));
+    // check if it could be a directory without a "/" at the and, send a redirect
+    if (path.back() != '/'){
+        std::string check_path = path + "/";
+        struct stat buff;
+        if (::stat(check_path.c_str(), &buff)){
+            sendResponse(conn, HttpResponse::errorResponse(404, conn.settings, location));
+            return;
+        }
+        if (S_ISDIR(buff.st_mode)){
+            HttpResponse resp;
+            resp.setStatus(301);
+            resp.addHeader("Location", url_path + "/");
+            resp.setBody("<html><body>Moved Permanently: <a href=\"" + url_path + "/" + "\">" + url_path + "/" + "</a></body></html>");
+            sendResponse(conn, resp);
+            return;
+        }
+    }
+    sendResponse(conn, HttpResponse::errorResponse(404, conn.settings, location));
 }
 
 void ConnectionManager::handlePost(Connection &conn, const Request &req,
@@ -1082,7 +1039,7 @@ void ConnectionManager::handlePost(Connection &conn, const Request &req,
         case MissingContentTypePolicy::UNSET:
             break;
         case MissingContentTypePolicy::REJECT:
-            sendResponse(conn, errorResponse(400, conn.settings, location));
+            sendResponse(conn, HttpResponse::errorResponse(400, conn.settings, location));
             return;
         case MissingContentTypePolicy::DEFAULT:
             contentType = defaultCt;
@@ -1091,13 +1048,13 @@ void ConnectionManager::handlePost(Connection &conn, const Request &req,
     }
     if (req.getBody().size() > conn.settings->max_body_size)
     {
-        sendResponse(conn, errorResponse(413, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(413, conn.settings, location));
         return;
     }
 
     if (!location || location->upload_dir.empty())
     {
-        sendResponse(conn, errorResponse(403, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(403, conn.settings, location));
         return;
     }
 
@@ -1108,14 +1065,14 @@ void ConnectionManager::handlePost(Connection &conn, const Request &req,
 
     if (r != PathUtils::RESOLVE_OK)
     {
-        sendResponse(conn, errorResponse(400, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(400, conn.settings, location));
         return;
     }
 
     std::ofstream outfile(dest_path, std::ios::binary | std::ios::trunc);
     if (!outfile.is_open())
     {
-        sendResponse(conn, errorResponse(500, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(500, conn.settings, location));
         return;
     }
     outfile.write(req.getBody().data(), static_cast<std::streamsize>(req.getBody().size()));
@@ -1123,14 +1080,14 @@ void ConnectionManager::handlePost(Connection &conn, const Request &req,
     {
         outfile.close();
         std::remove(dest_path.c_str());
-        sendResponse(conn, errorResponse(500, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(500, conn.settings, location));
         return;
     }
     outfile.close();
     if (!outfile.good())
     {
         std::remove(dest_path.c_str());
-        sendResponse(conn, errorResponse(500, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(500, conn.settings, location));
         return;
     }
 
@@ -1148,28 +1105,28 @@ void ConnectionManager::handleDelete(Connection &conn, const std::string &root,
 {
     if (url_path == "/")
     {
-        sendResponse(conn, errorResponse(403, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(403, conn.settings, location));
         return;
     }
 
     std::string path;
     if (PathUtils::resolveUnder(root, url_path, "", path) != PathUtils::RESOLVE_OK)
     {
-        sendResponse(conn, errorResponse(403, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(403, conn.settings, location));
         return;
     }
 
     std::ifstream file(path);
     if (!file.good())
     {
-        sendResponse(conn, errorResponse(404, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(404, conn.settings, location));
         return;
     }
     file.close();
 
     if (std::remove(path.c_str()) != 0)
     {
-        sendResponse(conn, errorResponse(500, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(500, conn.settings, location));
         return;
     }
     sendResponse(conn, HttpResponse::error(204));
@@ -1193,14 +1150,14 @@ void ConnectionManager::handlePut(Connection &conn, const std::string &root,
     std::string path;
     if (PathUtils::resolveUnder(root, url_path, "", path) != PathUtils::RESOLVE_OK)
     {
-        sendResponse(conn, errorResponse(403, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(403, conn.settings, location));
         return;
     }
 
     std::ofstream outfile(path, std::ios::binary);
     if (!outfile.good())
     {
-        sendResponse(conn, errorResponse(500, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(500, conn.settings, location));
         return;
     }
     outfile.write(req.getBody().data(), req.getBody().size());
@@ -1208,7 +1165,7 @@ void ConnectionManager::handlePut(Connection &conn, const std::string &root,
     if (!outfile.good())
     {
         std::remove(path.c_str());
-        sendResponse(conn, errorResponse(500, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(500, conn.settings, location));
         return;
     }
     sendResponse(conn, HttpResponse::error(201));
@@ -1221,14 +1178,14 @@ void ConnectionManager::handlePatch(Connection &conn, const std::string &root,
     std::string path;
     if (PathUtils::resolveUnder(root, url_path, "", path) != PathUtils::RESOLVE_OK)
     {
-        sendResponse(conn, errorResponse(403, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(403, conn.settings, location));
         return;
     }
 
     std::ofstream outfile(path, std::ios::binary);
     if (!outfile.good())
     {
-        sendResponse(conn, errorResponse(500, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(500, conn.settings, location));
         return;
     }
     outfile.write(conn.read_buffer.data(), conn.read_buffer.size());
@@ -1236,7 +1193,7 @@ void ConnectionManager::handlePatch(Connection &conn, const std::string &root,
     if (!outfile.good())
     {
         std::remove(path.c_str());
-        sendResponse(conn, errorResponse(500, conn.settings, location));
+        sendResponse(conn, HttpResponse::errorResponse(500, conn.settings, location));
         return;
     }
     sendResponse(conn, HttpResponse::error(204));

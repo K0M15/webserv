@@ -1,6 +1,7 @@
 #include "HttpResponse.hpp"
 #include "HttpStatusReason.hpp"
 #include "StandardErrorPages.hpp"
+#include "fstream"
 #include <sstream>
 #include <iostream>
 #include <iomanip>
@@ -160,4 +161,48 @@ HttpResponse HttpResponse::dirindex(const std::string& path, const std::string p
     document << "</body></html>";
     resp.setBody(document.str());
     return resp;
+}
+
+HttpResponse HttpResponse::errorResponse(
+    unsigned int code,
+    const WebserverSettings *settings,
+    const LocationConfig *location)
+{
+    const std::string *error_path = nullptr;
+    if (location)
+    {
+        auto it = location->error_page.find(code);
+        if (it != location->error_page.end())
+            error_path = &it->second;
+    }
+    if (!error_path)
+    {
+        auto it = settings->error_page.find(code);
+        if (it != settings->error_page.end())
+            error_path = &it->second;
+    }
+
+    if (error_path)
+    {
+        std::string root = (location && !location->root.empty())
+                               ? location->root
+                               : settings->root;
+        std::string full_path = root + *error_path;
+
+        std::ifstream file(full_path);
+        if (file.is_open())
+        {
+            std::stringstream ss;
+            ss << file.rdbuf();
+            file.close();
+
+            HttpResponse resp;
+            resp.setStatus(code);
+            resp.setBody(ss.str());
+            resp.addHeader("Content-Type", PathUtils::mimeType(full_path));
+            return resp;
+        }
+    }
+
+    return HttpResponse::error(code);
 }

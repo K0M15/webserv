@@ -4,6 +4,7 @@
 #include <map>
 #include <ctime>
 #include "HttpStatusReason.hpp"
+#include "WebserverSettings.hpp"
 #include "Defines.hpp"
 
 class HttpResponse {
@@ -27,6 +28,9 @@ public:
 
     static HttpResponse error(unsigned int code);
     static HttpResponse dirindex(const std::string& path, const std::string prefix);
+    static HttpResponse errorResponse(unsigned int code,
+                               const WebserverSettings* settings,
+                               const LocationConfig* location);
     static std::string httpDate(time_t t);
 
 private:

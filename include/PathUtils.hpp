@@ -26,6 +26,7 @@ public:
                                         std::string& matched_ext);
     // translates a path_info from splitPathInfo into the filesystem 
     static std::string    translatePath(const std::string& root, const std::string& path_info);
+    static const char*    mimeType(const std::string &filename);
 private:
     PathUtils();
     PathUtils(const PathUtils&);
