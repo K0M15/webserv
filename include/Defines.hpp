@@ -75,7 +75,16 @@
 # define CGI_BUFFER_SIZE 4096
 #endif
 
-// Debug Flag
-#ifndef DEBUG
-// # define DEBUG
+// FLAGS AUTH
+#ifdef DISABLE_AUTH
+# define DISABLE_DELETE_AUTH
+# define DISABLE_PATCH_AUTH
+# define DISABLE_PUT_AUTH
 #endif
+
+// #define DISABLE_DELETE_AUTH
+// #define DISABLE_PATCH_AUTH
+// #define DISABLE_PUT_AUTH
+
+// Debug Flag
+// # define DEBUG

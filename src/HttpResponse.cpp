@@ -132,7 +132,7 @@ HttpResponse HttpResponse::dirindex(const std::string& path, const std::string p
     document << "</head>";
     document << "<body><h1>Index of "<< prefix <<"</h1><hr><table>";
     document << "<thead><tr><th>Name</th><th>Size</th><th>Last modified</th></tr></thead>";
-    DIR* dir = opendir(path.c_str());
+    DIR* dir = ::opendir(path.c_str());
     if (dir)
     {
         struct dirent* entry;
@@ -155,6 +155,7 @@ HttpResponse HttpResponse::dirindex(const std::string& path, const std::string p
             document << "<tr><td><a href=\"" << prefix + "/" + entry->d_name << "\">" << entry->d_name <<"</a></td><td>" << s <<" byte </td><td>" << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S") << "</td></tr>\n";
         }
     }
+    ::closedir(dir);
     document << "</table>";
     document << "</body></html>";
     resp.setBody(document.str());

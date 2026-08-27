@@ -145,10 +145,10 @@ void CGIHandler::setEnv(){
     add("REQUEST_METHOD", m_req.getMethod());
     add("REQUEST_URI", m_req.getURL().str());
     add("QUERY_STRING", m_req.getURL().getRawQuery());
-    add("SCRIPT_NAME", PathUtils::stripQuery(m_req.getURL().str()));
+    add("SCRIPT_NAME", m_scriptName);
     add("SCRIPT_FILENAME", resolveScriptPath(m_filePath));
-    add("PATH_INFO", "");
-    add("PATH_TRANSLATED", "");
+    add("PATH_INFO", m_pathInfo);
+    add("PATH_TRANSLATED", m_pathTranslated);
 
     std::string ct = m_req.getHeader("Content-Type");
     std::string cl = m_req.getHeader("Content-Length");
@@ -196,7 +196,7 @@ CGIHandler::CGIHandler(
     m_stdin_fd(-1), m_stdout_fd(-1),
     m_done(false), m_output_drained(false), m_status_collected(false),
     m_output_exceeded(false), m_timed_out(false),
-    m_onComplete(onComplete)
+    m_onComplete(onComplete), m_input_read_offset(0)
 {
     if (m_scriptName.empty())
     {
@@ -346,12 +346,11 @@ void CGIHandler::spawnCGI(){
         },
         [this, body, stdin_fd](){ // writeable
             if (m_stdin_fd < 0) return;
-            size_t off = 0;
-            while (off < body.size())
+            while (this->m_input_read_offset < body.size())
             {
-                ssize_t n = write(stdin_fd, body.data() + off, body.size() - off);
+                ssize_t n = write(stdin_fd, body.data() + this->m_input_read_offset, body.size() - this->m_input_read_offset);
                 if (n <= 0) break;
-                off += static_cast<size_t>(n);
+                this->m_input_read_offset += static_cast<size_t>(n);
             }
             m_stdin_fd = -1;
             PollHandler::getInstance().unsubscribe(stdin_fd);
