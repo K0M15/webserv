@@ -22,7 +22,7 @@
 Connection::Connection(int fd, const sockaddr_in& a, const std::vector<const WebserverSettings*> candidates)
     :   fd(fd), addr(a), state(READING),
         headers_complete(false), content_length(0),
-        header_end(0), chunked(false),
+        header_end(0), chunked(false), is_head_request(false),
         bytes_sent(0), keep_alive(false),
         last_active(std::time(nullptr)), 
         settings(candidates.empty() ? nullptr : candidates.front()),
@@ -166,6 +166,7 @@ void ConnectionManager::onWritable(int fd)
             conn.content_length = 0;
             conn.header_end = 0;
             conn.chunked = false;
+            conn.is_head_request = false;
 
             auto& poll = PollHandler::getInstance();
             poll.subscribe_read(conn.fd,
@@ -343,6 +344,8 @@ static bool isMethodAllowed(
     if (allowed.empty())
         return true;
     Method m = parseMethod(method);
+    if (m == HEAD)
+        m = GET;
     for (auto a : allowed)
         if (a == m)
             return true;
@@ -461,6 +464,7 @@ void ConnectionManager::handleRequestFD(int fd)
 
 void ConnectionManager::handleRequest(Connection& conn, const Request& req)
 {
+    conn.is_head_request = (parseMethod(req.getMethod()) == HEAD);
     const std::string keep_alive = req.getHeader("keep-alive");
     if (!keep_alive.empty() && keep_alive == "true")
     {
@@ -656,13 +660,19 @@ void ConnectionManager::handleHead(Connection& conn, const std::string& root,
     if (file.is_open())
     {
         file.close();
+
+        struct stat st;
+        if (stat(path.c_str(), &st) != 0)
+        {
+            sendResponse(conn, errorResponse(500, conn.settings, location));
+            return;
+        }
+
         HttpResponse resp;
         resp.setStatus(200);
         resp.addHeader("Content-Type", mimeType(path));
-
-        struct stat st;
-        if (stat(path.c_str(), &st) == 0)
-            resp.addHeader("Last-Modified", HttpResponse::httpDate(st.st_mtime));
+        resp.addHeader("Content-Length", std::to_string(st.st_size));
+        resp.addHeader("Last-Modified", HttpResponse::httpDate(st.st_mtime));
 
         sendResponse(conn, resp);
         return;
@@ -852,6 +862,12 @@ const WebserverSettings* ConnectionManager::resolveSettings(Connection& conn, co
 void ConnectionManager::sendResponse(Connection& conn, const HttpResponse& response)
 {
     conn.response_buffer = response.toString();
+    if (conn.is_head_request)
+    {
+        size_t header_end = conn.response_buffer.find("\r\n\r\n");
+        if (header_end != std::string::npos)
+            conn.response_buffer.resize(header_end + 4);
+    }
     conn.bytes_sent = 0;
     conn.state = WRITING;
     

@@ -92,7 +92,10 @@ testWebserverSettings: createTestDIR
 testCGI: createTestDIR
 	$(CXX) $(CXXFLAGS) src/CGIHandler.cpp src/Request.cpp src/Chunked.cpp src/ConnectionManager.cpp src/PathUtils.cpp src/PollHandler.cpp src/HttpResponse.cpp src/HttpStatusReason.cpp tests/testCGI.cpp -o bin/testCGI
 
-tests: testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI
+testHead: createTestDIR
+	$(CXX) $(CXXFLAGS) src/CGIHandler.cpp src/Request.cpp src/Chunked.cpp src/ConnectionManager.cpp src/PathUtils.cpp src/PollHandler.cpp src/HttpResponse.cpp src/HttpStatusReason.cpp tests/testHead.cpp -o bin/testHead
+
+tests: testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI testHead
 	./bin/testRequest tests/sample_request.txt
 	./bin/testURL
 	./bin/testChunked
@@ -102,7 +105,8 @@ tests: testRequest testURL testChunked testPollHandler testConfigReader testHttp
 	./bin/testHttpStatusReason
 	./bin/testWebserverSettings
 	./bin/testCGI
+	./bin/testHead
 
 re: fclean all
 
-.PHONY: all clean fclean re testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI tests
+.PHONY: all clean fclean re testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI testHead tests
