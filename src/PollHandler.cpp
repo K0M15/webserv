@@ -104,14 +104,7 @@ void PollHandler::checkFDs() {
         int current_fd = pollfds[i].fd;
         auto* e = getEventByFD(current_fd);
         if (!e) continue;
-
-        if (revents & (POLLERR | POLLHUP | POLLNVAL)) {
-            if (e->on_close) {
-                auto close_cb = e->on_close;
-                close_cb();
-            }
-            continue;
-        }
+        
         if (revents & (POLLIN | POLLPRI)) {
             e = getEventByFD(current_fd);
             if (e && e->on_readable) e->on_readable();
@@ -119,6 +112,14 @@ void PollHandler::checkFDs() {
         if (revents & POLLOUT) {
             e = getEventByFD(current_fd);
             if (e && e->on_writeable) e->on_writeable();
+        }
+        if (revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            e = getEventByFD(current_fd);
+            if (e->on_close) {
+                auto close_cb = e->on_close;
+                close_cb();
+            }
+            continue;
         }
     }
 }
