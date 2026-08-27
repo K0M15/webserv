@@ -349,7 +349,7 @@ void CGIHandler::spawnCGI(){
             while (this->m_input_write_offset < body.size())
             {
                 ssize_t n = write(stdin_fd, body.data() + this->m_input_write_offset, body.size() - this->m_input_write_offset);
-                if (n <= 0) break;
+                if (n <= 0) return;
                 this->m_input_write_offset += static_cast<size_t>(n);
             }
             m_stdin_fd = -1;
