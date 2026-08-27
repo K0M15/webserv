@@ -23,7 +23,6 @@
 #include <sys/stat.h>
 
 #pragma region cookies
-
 struct SessionCookie
 {
     std::string id;
@@ -159,12 +158,12 @@ void ConnectionManager::deleteExpiredSessions()
         std::optional<SessionInfo> session = m_activeSessions.get(sessionIds[i]);
         if (!session.has_value())
             continue;
-
+#ifdef DEBUG
         std::cout << sessionIds[i] 
                   << " expires in " 
                   << (session->expiresAt - now) 
                   << " seconds." << std::endl;
-        
+#endif        
         if (now > session->expiresAt)
             m_activeSessions.del(sessionIds[i]);
     }
@@ -375,6 +374,7 @@ void ConnectionManager::onWritable(int fd)
             conn.content_length = 0;
             conn.header_end = 0;
             conn.chunked = false;
+            conn.is_head_request = false;
             conn.sent_100_continue = false;
 
             if (!conn.read_buffer.empty() && isRequestComplete(conn) == RequestReadState::COMPLETE)
@@ -578,6 +578,8 @@ static bool isMethodAllowed(
     if (allowed.empty())
         return true;
     Method m = parseMethod(method);
+    if (m == HEAD)
+        m = GET;
     for (auto a : allowed)
         if (a == m)
             return true;
@@ -681,6 +683,7 @@ void ConnectionManager::handleRequest(Connection &conn, const Request &req)
         conn.keep_alive = iequals(conn_hdr, "keep-alive");
     conn.settings = resolveSettings(conn, req);
     Method m = parseMethod(req.getMethod());
+    conn.is_head_request = (m == HEAD);
     std::string url_path = req.getURL().str();
     std::string url_file = url_path.substr(0, url_path.find('?'));
 
@@ -981,6 +984,14 @@ void ConnectionManager::handleHead(Connection &conn, const std::string &root,
     if (file.is_open())
     {
         file.close();
+
+        struct stat st;
+        if (stat(path.c_str(), &st) != 0)
+        {
+            sendResponse(conn, errorResponse(500, conn.settings, location));
+            return;
+        }
+
         HttpResponse resp;
         resp.setStatus(200);
         resp.addHeader("Content-Type", PathUtils::mimeType(path));
@@ -988,7 +999,7 @@ void ConnectionManager::handleHead(Connection &conn, const std::string &root,
         struct stat st;
         if (stat(path.c_str(), &st) == 0)
             resp.addHeader("Last-Modified", HttpResponse::httpDate(st.st_mtime));
-
+        resp.addHeader("Content-Length", std::to_string(st.st_size));
         sendResponse(conn, resp);
         return;
     }
@@ -1250,6 +1261,12 @@ const WebserverSettings *ConnectionManager::resolveSettings(Connection &conn, co
 void ConnectionManager::sendResponse(Connection& conn, const HttpResponse& response)
 {
     conn.response_buffer = response.toString();
+    if (conn.is_head_request)
+    {
+        size_t header_end = conn.response_buffer.find("\r\n\r\n");
+        if (header_end != std::string::npos)
+            conn.response_buffer.resize(header_end + 4);
+    }
     conn.bytes_sent = 0;
     conn.state = WRITING;
 
