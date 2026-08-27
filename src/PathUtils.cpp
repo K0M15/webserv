@@ -154,3 +154,38 @@ std::string PathUtils::translatePath(const std::string& root, const std::string&
         return clean_root + clean_info;
     return clean_root + "/" + clean_info;
 }
+
+const char *PathUtils::mimeType(const std::string &filename)
+{
+    auto pos = filename.rfind('.');
+    if (pos == std::string::npos)
+        return "application/octet-stream";
+    std::string ext = filename.substr(pos);
+    if (ext == ".html")
+        return "text/html";
+    if (ext == ".htm")
+        return "text/html";
+    if (ext == ".css")
+        return "text/css";
+    if (ext == ".js")
+        return "application/javascript";
+    if (ext == ".png")
+        return "image/png";
+    if (ext == ".jpg" || ext == ".jpeg")
+        return "image/jpeg";
+    if (ext == ".gif")
+        return "image/gif";
+    if (ext == ".ico")
+        return "image/x-icon";
+    if (ext == ".txt")
+        return "text/plain";
+    if (ext == ".pdf")
+        return "application/pdf";
+    if (ext == ".json")
+        return "application/json";
+    if (ext == ".xml")
+        return "application/xml";
+    if (ext == ".svg")
+        return "image/svg+xml";
+    return "application/octet-stream";
+}
