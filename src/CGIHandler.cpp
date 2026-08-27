@@ -13,6 +13,7 @@
 #include <map>
 #include "PollHandler.hpp"
 #include "PathUtils.hpp"
+#include "Defines.hpp"
 
 std::map<pid_t, std::function<void(int)>> g_pending;
 int g_sig_fd = -1;
@@ -125,8 +126,8 @@ void CGIHandler::setEnv(){
         m_env_strings.push_back(name + "=" + value);
     };
 
-    add("GATEWAY_INTERFACE", "CGI/1.1");
-    add("SERVER_SOFTWARE", "webserv/0.1");
+    add("GATEWAY_INTERFACE", CGI_GATEWAY_INTERFACE);
+    add("SERVER_SOFTWARE", APPLICATION_ID);
 
     std::string host = m_req.getHeader("Host");
     size_t colon = host.find(':');
@@ -238,7 +239,7 @@ void CGIHandler::spawnCGI(){
 
 
     auto drain = [this, stdout_pipe](){ // readable && on_close
-        char buf[4096];
+        char buf[CGI_BUFFER_SIZE];
         ssize_t n;
         while ((n = read(stdout_pipe[0], buf, sizeof(buf))) > 0)
             m_output.append(buf, static_cast<size_t>(n));

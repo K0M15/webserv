@@ -1,6 +1,7 @@
 
 #include "Request.hpp"
 #include "Chunked.hpp"
+#include "Defines.hpp"
 #include "sys/socket.h"
 #include <cctype>
 #include <limits>
@@ -67,65 +68,150 @@ Request Request::fromString(const std::string& rawRequest)
         std::stringstream ss(line);
         if (!(ss >> req.method >> req.url >> req.version))
             throw std::runtime_error("Malformed request line");
+        if (req.version != HTTP_VERSION)
+            throw HTTPVersionNotSupportedException(std::string(HTTP_VERSION) + " required");
+        if (req.method != "GET" && req.method != "POST" 
+            && req.method != "DELETE" && req.method != "PUT"
+            && req.method != "PATCH")
+            throw HTTPMethodNotAllowedException("Method not supported");
     }
     //parse headers, last line is empty
     while (std::getline(stream, line) && line != "\r" && !line.empty())
     {
         if (line.back() == '\r')
             line.pop_back();
-        auto pos = line.find(":");
-        if (pos != std::string::npos)
+        auto position = line.find(":");
+        if (position != std::string::npos)
         {
-            std::string key = line.substr(0, pos);
-            std::string value = line.substr(pos + 1);
+            std::string key = line.substr(0, position);
+            std::string value = line.substr(position + 1);
             // RFC Requirement: A server MUST reject any HTTP/1.1 request that contains whitespace before the colon with a 400 Bad Request status code.
             if (std::any_of(key.begin(), key.end(), [](unsigned char c){ return std::isspace(c); }))
                 throw std::runtime_error("Header key is not allowed to contain space");
-            while (!value.empty() && value.front() == ' ')
-                    value.erase(0, 1);
+            // Remove leading whitespace from value
+            while (!value.empty() && (value.front() == ' ' || value.front() == '\t'))
+                value.erase(0, 1);
+            // lower case keys
             std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c)
                 {
                     return std::tolower(c);
                 });
+            // reject duplicate headers
+            if (!req.headers[key].empty())
+                throw std::runtime_error("Duplicate header " + key);
+            // add to header map
             req.headers[key] = value;
         }
+        else throw std::runtime_error("Malformed header line");
+    }
+    // validate host header
+    {
+        auto header_host = req.headers.find("host");
+        if (header_host == req.headers.end() || header_host->second.empty())
+            throw std::runtime_error("Host header is required");
     }
     // Body framing: either Content-Length or Transfer-Encoding (chunked).
-    // A request carrying both is treated as a smuggling attempt (RFC 9112 6.1).
-    auto te_it = req.headers.find("transfer-encoding");
-    auto cl_it = req.headers.find("content-length");
-    if (te_it != req.headers.end())
+    // A request carrying both is treated as a smuggling attempt (RFC 9112 6.1)
     {
-        if (cl_it != req.headers.end())
-            throw std::runtime_error("Content-Length and Transfer-Encoding are mutually exclusive");
-        if (!isChunkedCoding(te_it->second))
-            throw std::runtime_error("Unsupported Transfer-Encoding");
+        auto header_transfer_encoding = req.headers.find("transfer-encoding");
+        auto header_content_length = req.headers.find("content-length");
+        if (header_transfer_encoding != req.headers.end())
+        {
+            if (header_content_length != req.headers.end())
+                throw std::runtime_error("Content-Length and Transfer-Encoding are mutually exclusive");
+            if (!isChunkedCoding(header_transfer_encoding->second))
+                throw std::runtime_error("Unsupported Transfer-Encoding");
 
-        std::ostringstream oss;
-        oss << stream.rdbuf();
-        std::string framed = oss.str();
+            std::ostringstream oss;
+            oss << stream.rdbuf();
+            std::string framed = oss.str();
 
-        std::string decoded;
-        size_t consumed = 0;
-        if (ChunkedBody::decode(framed, std::numeric_limits<size_t>::max(),
-                                decoded, consumed) != ChunkResult::COMPLETE)
-            throw std::runtime_error("Malformed chunked body");
-        req.body = decoded;
-        req.chunked = true;
+            std::string decoded;
+            size_t consumed = 0;
+            if (ChunkedBody::decode(framed, std::numeric_limits<size_t>::max(),
+                                    decoded, consumed) != ChunkResult::COMPLETE)
+                throw std::runtime_error("Malformed chunked body");
+            req.body = decoded;
+            req.chunked = true;
+        }
+        else if (header_content_length != req.headers.end())
+        {
+            const std::string& value = header_content_length->second;
+            unsigned long len{};
+            auto result = std::from_chars(value.data(), value.data() + value.size(), len);
+            if (result.ec != std::errc() || result.ptr != value.data() + value.size())
+                throw std::runtime_error("Invalid Content-Length");
+
+            req.body.resize(len);
+            stream.read(req.body.data(), len);
+            if (stream.gcount() != static_cast<std::streamsize>(len))
+                throw std::runtime_error("Incomplete request body");
+        }
+        return req;
     }
-    else if (cl_it != req.headers.end())
+}
+
+const std::string& Request::getHeader(const std::string& key) const {
+    // fromString() stores header keys lowercased, so lookups must
+    // lowercase the key too, or e.g. getHeader("Content-Type") never matches.
+    std::string lower_key = key;
+    std::transform(lower_key.begin(), lower_key.end(), lower_key.begin(), [](unsigned char c)
+        {
+            return std::tolower(c);
+        });
+    std::map<std::string, std::string>::const_iterator it = headers.find(lower_key);
+    if (it != headers.end()) {
+        return it->second;
+    }
+    static const std::string empty;
+    return empty;
+}
+
+
+/**
+ * Go through cookie header and split at each delimiter ";"
+ * HTTP specs basically require cookies to be joined with a semicolon Delimiter since browsers
+ * will literally join multiple cookies with it. e.g. cookie: session_id=8675309; username=admin; etc
+ * So we take each of these chunks and tokenize key pairs between the session_id, then the values
+ * and return the pairs until we reach the end of the cookie.
+ * For now if nothing is found im just passing an empty string.
+ */
+std::string Request::getCookie(const std::string& name) const
+{
+    std::string cookieHeader = getHeader("Cookie");
+    size_t position = 0;
+
+    while (position < cookieHeader.size())
     {
-        const std::string& value = cl_it->second;
-        unsigned long len{};
-        auto result = std::from_chars(value.data(), value.data() + value.size(), len);
-        if (result.ec != std::errc() || result.ptr != value.data() + value.size())
-            throw std::runtime_error("Invalid Content-Length");
+        size_t semicolonDelimiter = cookieHeader.find(';', position);
 
-        req.body.resize(len);
-        stream.read(req.body.data(), len);
-        if (stream.gcount() != static_cast<std::streamsize>(len))
-            throw std::runtime_error("Incomplete request body");
+        std::string pair;
+        if (semicolonDelimiter == std::string::npos)
+            pair = cookieHeader.substr(position);
+        else
+            pair = cookieHeader.substr(position, semicolonDelimiter - position);
+
+        size_t delimiterPosition = pair.find('=');
+        if (delimiterPosition != std::string::npos)
+        {
+            std::string key = pair.substr(0, delimiterPosition);
+            size_t start = key.find_first_not_of(" \t");
+            if (start != std::string::npos)
+                key = key.substr(start);
+            if (key == name)
+            {
+                std::string value = pair.substr(delimiterPosition + 1);
+                size_t end = value.find_last_not_of(" \t");
+                if (end != std::string::npos)
+                    value = value.substr(0, end + 1);
+                return value;
+            }
+        }
+
+        if (semicolonDelimiter == std::string::npos)
+            break;
+        position = semicolonDelimiter + 1;
     }
-    // Return built object
-    return req;
+
+    return "";
 }

@@ -1,9 +1,9 @@
 #include "Webserver.hpp"
+#include "Defines.hpp"
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <cerrno>
 #include <cstring>
 #include <iostream>
 #include <csignal>
@@ -48,14 +48,14 @@ int Webserver::createListenSocket(const ListenDirective& ld)
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0)
     {
-        std::cerr << "socket() failed: " << std::strerror(errno) << std::endl;
+        std::cerr << "socket() failed: error creating listening socket" << std::endl;
         return -1;
     }
 
     int opt = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
     {
-        std::cerr << "setsockopt(SO_REUSEADDR) failed: " << std::strerror(errno) << std::endl;
+        std::cerr << "setsockopt(SO_REUSEADDR) failed: error setting socket options" << std::endl;
         ::close(fd);
         return -1;
     }
@@ -65,7 +65,7 @@ int Webserver::createListenSocket(const ListenDirective& ld)
     addr.sin_family = AF_INET;
     addr.sin_port = htons(static_cast<uint16_t>(ld.port));
 
-    if (ld.address.empty() || ld.address == "0.0.0.0")
+    if (ld.address.empty() || ld.address == DEFAULT_LISTEN_ADDRESS)
         addr.sin_addr.s_addr = INADDR_ANY;
     else if (inet_pton(AF_INET, ld.address.c_str(), &addr.sin_addr) <= 0)
     {
@@ -76,22 +76,28 @@ int Webserver::createListenSocket(const ListenDirective& ld)
 
     if (bind(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) < 0)
     {
-        std::cerr << "bind() failed on " << ld.address << ":" << ld.port
-                  << " — " << std::strerror(errno) << std::endl;
+        std::cerr << "bind() failed on " << ld.address << ":" << ld.port << "error binding socket" << std::endl;
         ::close(fd);
         return -1;
     }
 
     if (listen(fd, SOMAXCONN) < 0)
     {
-        std::cerr << "listen() failed: " << std::strerror(errno) << std::endl;
+        std::cerr << "listen() failed: error listening on socket" << std::endl;
         ::close(fd);
         return -1;
     }
-
-    if (fcntl(fd, F_SETFL, O_NONBLOCK | O_CLOEXEC ) < 0)
+    int flags = fcntl(fd, F_GETFD);
+    if (fcntl(fd, F_SETFD, flags | FD_CLOEXEC) < 0)
     {
-        std::cerr << "fcntl(O_NONBLOCK | O_CLOEXEC) failed: " << std::strerror(errno) << std::endl;
+        std::cerr << "fcntl(FD_CLOEXEC) failed: error setting listening socket file descriptor flags" << std::endl;
+        ::close(fd);
+        return -1;
+    }
+    flags = fcntl(fd, F_GETFL);
+    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0)
+    {
+        std::cerr << "fcntl(O_NONBLOCK) failed: error setting listening socket file descriptor flags" << std::endl;
         ::close(fd);
         return -1;
     }   
@@ -108,7 +114,7 @@ void Webserver::setupListenSockets()
 
         for (const auto& ld : settings->listen)
         {
-            std::string key = (ld.address.empty() ? "0.0.0.0" : ld.address)
+            std::string key = (ld.address.empty() ? DEFAULT_LISTEN_ADDRESS : ld.address)
                             + ":" + std::to_string(ld.port);
 
             int fd = -1;
@@ -175,7 +181,7 @@ void Webserver::run()
         try
         {
             poll.checkFDs();
-            m_conn_manager.checkTimeouts(60);
+            m_conn_manager.checkTimeouts(DEFAULT_KEEP_ALIVE_TIMEOUT);
         }
         catch (const std::exception& e)
         {
