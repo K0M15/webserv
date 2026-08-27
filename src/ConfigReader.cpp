@@ -1,5 +1,4 @@
 #include "ConfigReader.h"
-
 #include <algorithm>
 #include <string_view>
 
@@ -44,6 +43,7 @@ ConfigReader::ConfigReader(const std::string& file)
     switch (readConfig(rawsettings))
     {
     case ParseResult::TotalFailure:
+    case ParseResult::SuccessWithWarnings:
         throw HttpServerException("Error reading config file: " + file);
     case ParseResult::SuccessWithWarnings:
     case ParseResult::Success:

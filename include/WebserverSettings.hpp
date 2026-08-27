@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vector>
 #include <unordered_map>
 #include <map>
 #include <charconv>
@@ -8,19 +9,7 @@
 #include <utility>
 #include <optional>
 #include <Request.hpp>
-// #include <BaseResponse.hpp>
-
-#ifndef DEFAULT_MAX_CGI_OUTPUT
-# define DEFAULT_MAX_CGI_OUTPUT 2e6
-#endif
-
-#ifndef DEFAULT_MAX_BODY_SIZE
-# define DEFAULT_MAX_BODY_SIZE 1e6
-#endif
-
-#ifndef DEFAULT_MAX_HEADER_SIZE
-# define DEFAULT_MAX_HEADER_SIZE 1e6
-#endif
+#include "Defines.hpp"
 
 #ifndef DEFAULT_PORT
 # define DEFAULT_PORT 8080

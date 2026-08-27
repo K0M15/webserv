@@ -56,7 +56,7 @@ std::string HttpResponse::toString() const
 {
     std::ostringstream oss;
 
-    oss << "HTTP/1.1 " << m_status << " " << HttpStatusReason::reason(m_status) << "\r\n";
+    oss << HTTP_VERSION << " " << m_status << " " << HttpStatusReason::reason(m_status) << "\r\n";
 
     if (m_headers.find("Content-Type") == m_headers.end() && !m_body.empty())
         oss << "Content-Type: text/html\r\n";
@@ -73,7 +73,7 @@ std::string HttpResponse::toString() const
         oss << "Date: " << httpDate(time(nullptr)) << "\r\n";
 
     if (m_headers.find("Server") == m_headers.end())
-        oss << "Server: " << APPLICATION_VERSION << "\r\n";
+        oss << "Server: " << APPLICATION_ID << "\r\n";
 
     oss << "\r\n";
 
@@ -107,8 +107,17 @@ HttpResponse HttpResponse::error(unsigned int code)
 {
     HttpResponse resp;
     resp.setStatus(code);
-    resp.addHeader("Content-Type", "text/html");
-    resp.setBody(HtmlPages::construct_errorpage(code, HttpStatusReason::reason(code)));
+    switch (code)
+    {
+        case 204:{
+            resp.setBody("");
+            break;
+        }
+        default:{
+            resp.addHeader("Content-Type", "text/html");
+            resp.setBody(HtmlPages::construct_errorpage(code, HttpStatusReason::reason(code)));
+        }
+    }
     return resp;
 }
 
@@ -135,7 +144,7 @@ HttpResponse HttpResponse::dirindex(const std::string& path, const std::string p
             if (stat(std::string(path + entry->d_name).c_str(), &entryStat))
             {
 #ifndef DEBUG
-                std::cout << "[Error] stat reading " << path << entry->d_name << " , returned error: " << strerror(errno) << std::endl;
+                std::cout << "[Error] stat reading " << path << entry->d_name << " , error reading directory entry" << std::endl;
                 document << "<tr><td><a href=\"" << prefix + "/" + entry->d_name << "\">" << entry->d_name <<"</a></td><td>" << entry->d_reclen <<" byte </td></tr>\n";                
                 continue;
 #endif /* DEBUG */
