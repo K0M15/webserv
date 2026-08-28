@@ -199,9 +199,9 @@ bool    ConnectionManager::handleRole(Connection& conn, const Request& req, cons
 Connection::Connection(int fd, const sockaddr_in& a, const std::vector<const WebserverSettings*> candidates)
 :   fd(fd), addr(a), state(READING),
     headers_complete(false), content_length(0),
-    header_end(0), chunked(false), is_head_request(false),
-    bytes_sent(0), keep_alive(false),
-    last_active(std::time(nullptr)), 
+    header_end(0), chunked(false), is_head_request(false), sent_100_continue(false),
+    bytes_sent(0), keep_alive(true),
+    last_active(std::time(nullptr)),
     settings(candidates.empty() ? nullptr : candidates.front()),
     candidates(candidates){}
 
@@ -955,6 +955,14 @@ void ConnectionManager::handleGet(Connection &conn, const std::string &root,
         sendResponse(conn, HttpResponse::dirindex(root + url_path, url_path));
         return;
     }
+    // resolvePath() returns "" for an unsafe/invalid path (e.g. "//" segments) -
+    // that is not a real filesystem path, so treat it as 404 immediately instead
+    // of falling into the back()/stat() logic below.
+    if (path.empty())
+    {
+        sendResponse(conn, HttpResponse::errorResponse(404, conn.settings, location));
+        return;
+    }
     // check if it could be a directory without a "/" at the and, send a redirect
     if (path.back() != '/'){
         std::string check_path = path + "/";
@@ -1006,6 +1014,14 @@ void ConnectionManager::handleHead(Connection &conn, const std::string &root,
     if (url_path.back() == '/' && (conn.settings->dirindex || (location && location->dirindex)))
     {
         sendResponse(conn, HttpResponse::dirindex(root + url_path, url_path));
+        return;
+    }
+    // resolvePath() returns "" for an unsafe/invalid path (e.g. "//" segments) -
+    // that is not a real filesystem path, so treat it as 404 immediately instead
+    // of falling into the back()/stat() logic below.
+    if (path.empty())
+    {
+        sendResponse(conn, HttpResponse::errorResponse(404, conn.settings, location));
         return;
     }
     // check if it could be a directory without a "/" at the and, send a redirect
