@@ -212,7 +212,7 @@ CGIHandler::CGIHandler(
             interpreters[fileExt] = m_iPath;
 
         std::string s_name, p_info, matched_ext;
-        if (PathUtils::splitPathInfo(m_req.getURL().str(), interpreters, s_name, p_info, matched_ext))
+        if (PathUtils::splitPathInfo(m_req.getURL().getPath(), interpreters, s_name, p_info, matched_ext))
         {
             m_scriptName = s_name;
             m_pathInfo = p_info;
@@ -224,7 +224,7 @@ CGIHandler::CGIHandler(
         }
         else
         {
-            m_scriptName = PathUtils::stripQuery(m_req.getURL().str());
+            m_scriptName = PathUtils::stripQuery(m_req.getURL().getPath());
             m_pathInfo = "";
             m_pathTranslated = "";
         }

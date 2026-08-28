@@ -14,6 +14,30 @@ const std::string URL::str() const {
     return value;
 }
 
+// RFC 7230 5.3.2: a server receiving an absolute-form request-target
+// (scheme://authority/path) must rewrite it into origin-form before
+// routing, i.e. strip the scheme and authority and keep only the path
+// (and query). origin-form and asterisk-form pass through unchanged.
+const std::string URL::getPath() const {
+    if (value.empty() || value[0] == '/' || value == "*")
+        return value;
+
+    size_t scheme_end = value.find("://");
+    if (scheme_end == std::string::npos)
+        return value;
+
+    std::string rest = value.substr(scheme_end + 3);
+    size_t path_start = rest.find('/');
+    if (path_start != std::string::npos)
+        return rest.substr(path_start);
+
+    size_t query_start = rest.find('?');
+    if (query_start != std::string::npos)
+        return "/" + rest.substr(query_start);
+
+    return "/";
+}
+
 void URL::setURL(const std::string& s) {
     URL temp(s);
     this->value = s;

@@ -12,6 +12,7 @@ public:
     explicit URL(const std::string& s);
     
     const std::string str() const;
+    const std::string getPath() const;
     void setURL(const std::string& s);
     const std::string getRawQuery() const;
     const std::string getFileExt() const;
