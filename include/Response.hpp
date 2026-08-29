@@ -7,10 +7,10 @@
 #include "WebserverSettings.hpp"
 #include "Defines.hpp"
 
-class HttpResponse {
+class Response {
 public:
-    HttpResponse();
-    ~HttpResponse();
+    Response();
+    ~Response();
 
     void setStatus(unsigned int code);
     void setBody(const std::string& body);
@@ -26,11 +26,11 @@ public:
     const std::string& getBody() const;
     bool getKeepAlive() const;
 
-    static HttpResponse error(unsigned int code);
-    static HttpResponse dirindex(const std::string& path, const std::string prefix);
-    static HttpResponse errorResponse(unsigned int code,
-                               const WebserverSettings* settings,
-                               const LocationConfig* location);
+    static Response error(unsigned int code);
+    static Response dirindex(const std::string& path, const std::string prefix);
+    static Response errorResponse(unsigned int code,
+                                  const WebserverSettings* settings,
+                                  const LocationConfig* location);
     static std::string httpDate(time_t t);
 
 private:
@@ -39,3 +39,4 @@ private:
     std::string m_body;
     bool m_keep_alive;
 };
+

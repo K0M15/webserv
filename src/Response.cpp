@@ -1,16 +1,17 @@
-#include "HttpResponse.hpp"
+#include "Response.hpp"
 #include "HttpStatusReason.hpp"
 #include "StandardErrorPages.hpp"
-#include "fstream"
+#include "PathUtils.hpp"
+#include <fstream>
 #include <sstream>
 #include <iostream>
 #include <iomanip>
-#include <string.h>
+#include <cstring>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <ctime>
 
-std::string HttpResponse::httpDate(time_t t)
+std::string Response::httpDate(time_t t)
 {
     struct tm tm_buf;
     gmtime_r(&t, &tm_buf);
@@ -19,41 +20,41 @@ std::string HttpResponse::httpDate(time_t t)
     return buf;
 }
 
-HttpResponse::HttpResponse()
+Response::Response()
     : m_status(200), m_keep_alive(false)
 {
 }
 
-HttpResponse::~HttpResponse()
+Response::~Response()
 {
 }
 
-void HttpResponse::setStatus(unsigned int code)
+void Response::setStatus(unsigned int code)
 {
     m_status = code;
 }
 
-void HttpResponse::setBody(const std::string& body)
+void Response::setBody(const std::string& body)
 {
     m_body = body;
 }
 
-void HttpResponse::setKeepAlive(bool keep)
+void Response::setKeepAlive(bool keep)
 {
     m_keep_alive = keep;
 }
 
-void HttpResponse::addHeader(const std::string& key, const std::string& value)
+void Response::addHeader(const std::string& key, const std::string& value)
 {
     m_headers[key] = value;
 }
 
-void HttpResponse::removeHeader(const std::string& key)
+void Response::removeHeader(const std::string& key)
 {
     m_headers.erase(key);
 }
 
-std::string HttpResponse::toString() const
+std::string Response::toString() const
 {
     std::ostringstream oss;
 
@@ -84,29 +85,29 @@ std::string HttpResponse::toString() const
     return oss.str();
 }
 
-unsigned int HttpResponse::getStatus() const
+unsigned int Response::getStatus() const
 {
     return m_status;
 }
 
-const std::map<std::string, std::string>& HttpResponse::getHeaders() const
+const std::map<std::string, std::string>& Response::getHeaders() const
 {
     return m_headers;
 }
 
-const std::string& HttpResponse::getBody() const
+const std::string& Response::getBody() const
 {
     return m_body;
 }
 
-bool HttpResponse::getKeepAlive() const
+bool Response::getKeepAlive() const
 {
     return m_keep_alive;
 }
 
-HttpResponse HttpResponse::error(unsigned int code)
+Response Response::error(unsigned int code)
 {
-    HttpResponse resp;
+    Response resp;
     resp.setStatus(code);
     switch (code)
     {
@@ -122,9 +123,9 @@ HttpResponse HttpResponse::error(unsigned int code)
     return resp;
 }
 
-HttpResponse HttpResponse::dirindex(const std::string& path, const std::string prefix)
+Response Response::dirindex(const std::string& path, const std::string prefix)
 {
-    HttpResponse resp;
+    Response resp;
     resp.setStatus(200);
     resp.addHeader("Content-Type", "text/html");
     std::ostringstream document;
@@ -163,7 +164,7 @@ HttpResponse HttpResponse::dirindex(const std::string& path, const std::string p
     return resp;
 }
 
-HttpResponse HttpResponse::errorResponse(
+Response Response::errorResponse(
     unsigned int code,
     const WebserverSettings *settings,
     const LocationConfig *location)
@@ -175,14 +176,14 @@ HttpResponse HttpResponse::errorResponse(
         if (it != location->error_page.end())
             error_path = &it->second;
     }
-    if (!error_path)
+    if (!error_path && settings)
     {
         auto it = settings->error_page.find(code);
         if (it != settings->error_page.end())
             error_path = &it->second;
     }
 
-    if (error_path)
+    if (error_path && settings)
     {
         std::string root = (location && !location->root.empty())
                                ? location->root
@@ -196,7 +197,7 @@ HttpResponse HttpResponse::errorResponse(
             ss << file.rdbuf();
             file.close();
 
-            HttpResponse resp;
+            Response resp;
             resp.setStatus(code);
             resp.setBody(ss.str());
             resp.addHeader("Content-Type", PathUtils::mimeType(full_path));
@@ -204,5 +205,6 @@ HttpResponse HttpResponse::errorResponse(
         }
     }
 
-    return HttpResponse::error(code);
+    return Response::error(code);
 }
+
