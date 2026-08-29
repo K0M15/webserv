@@ -1,4 +1,5 @@
 #include "CGIHandler.hpp"
+#include "Connection.hpp"
 #include "WebserverSettings.hpp"
 #include "PollHandler.hpp"
 #include <arpa/inet.h>

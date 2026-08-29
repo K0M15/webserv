@@ -5,7 +5,9 @@
 #include <functional>
 #include <sys/types.h>
 #include "Request.hpp"
-#include "Connection.hpp"
+#include "Response.hpp"
+
+struct Connection;
 
 // https://www.php.net/security.cgi-bin
 
@@ -61,4 +63,6 @@ public:
     bool isTimedOut() const { return m_timed_out; }
     bool checkTimeout(int timeout_seconds = 10);
     void killProcess();
+
+    Response buildResponse(const WebserverSettings* settings) const;
 };

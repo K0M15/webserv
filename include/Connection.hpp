@@ -5,10 +5,9 @@
 #include <string>
 #include <ctime>
 #include <memory>
-#include <Request.hpp>
-#include <WebserverSettings.hpp>
-
-class CGIHandler;
+#include "Request.hpp"
+#include "WebserverSettings.hpp"
+#include "CGIHandler.hpp"
 
 enum ConnectionState {
     READING,
@@ -40,5 +39,12 @@ struct Connection {
     std::vector<const WebserverSettings*> candidates;
     std::unique_ptr<CGIHandler> cgi_handler;
 
-    Connection(int fd, const sockaddr_in& a, const std::vector<const WebserverSettings*> candidates);
+    inline Connection(int fd, const sockaddr_in& a, const std::vector<const WebserverSettings*> candidates)
+    :   fd(fd), addr(a), state(READING),
+        headers_complete(false), content_length(0), raw_body_length(0),
+        header_end(0), chunked(false), is_head_request(false), sent_100_continue(false),
+        bytes_sent(0), keep_alive(true),
+        last_active(std::time(nullptr)),
+        settings(candidates.empty() ? nullptr : candidates.front()),
+        candidates(candidates) {}
 };

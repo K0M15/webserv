@@ -8,6 +8,16 @@
 #include <algorithm>
 #include "URL.hpp"
 
+struct Connection;
+
+enum class RequestReadState {
+    INCOMPLETE,         // wait for more
+    COMPLETE,           // ready to be handled
+    BAD_REQUEST,        // malformed framing or request smuggling -> 400
+    PAYLOAD_TOO_LARGE,  // body exceeds max_body_size             -> 413
+    NOT_IMPLEMENTED,    // unsupported transfer coding            -> 501
+    EXPECTATION_FAILED  // wrong expectation in header            -> 417
+};
 
 class Request {
 private:
@@ -44,6 +54,8 @@ public:
     Request(const Request& other) = default;
     Request& operator=(const Request& other);
     static Request fromString(const std::string& rawRequest);
+    static RequestReadState isRequestComplete(Connection& conn);
+
     const std::string& getMethod() const { return method; }
     const std::string& getBody() const { return body; }
     bool isChunked() const { return chunked; }

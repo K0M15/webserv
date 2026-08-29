@@ -1,63 +1,22 @@
 #include "CGIHandler.hpp"
 
-#include <unistd.h>     // fork, execvpe, dup2, pipe2, chdir, _exit
-#include <fcntl.h>      // O_CLOEXEC, F_SETFD, FD_CLOEXEC
-#include <sys/wait.h>   // waitpid
-#include <sys/signalfd.h> // signalfd
-#include <sys/socket.h> // inet_ntoa needs arpa/inet.h; Connection.hpp pulls it in
-#include <signal.h>     // sigemptyset, sigaddset, sigprocmask
+#include <unistd.h>     // fork, dup2, pipe, chdir, _exit
+#include <fcntl.h>      // F_SETFD, FD_CLOEXEC, F_SETFL, O_NONBLOCK
+#include <sys/wait.h>   // waitpid, WNOHANG, WIFEXITED, WEXITSTATUS
+#include <sys/socket.h> // inet_ntoa
+#include <signal.h>     // kill, SIGKILL
 #include <limits.h>     // PATH_MAX
 #include <cstdio>       // perror
 #include <cstdlib>      // getenv
 #include <cstring>      // strerror
 #include <map>
+#include <charconv>
+#include <algorithm>
+#include <iostream>
 #include "PollHandler.hpp"
 #include "PathUtils.hpp"
+#include "Connection.hpp"
 #include "Defines.hpp"
-
-std::map<pid_t, std::function<void(int)>> g_pending;
-int g_sig_fd = -1;
-
-void setupSignalfd()
-{
-    if (g_sig_fd >= 0)
-        return;
-
-    // Block SIGCHLD from normal handling so it is queued for the signalfd
-    // instead of interrupting poll() or invoking a signal handler.
-    sigset_t mask;
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGCHLD);
-    sigprocmask(SIG_BLOCK, &mask, nullptr);
-
-    g_sig_fd = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
-    if (g_sig_fd < 0)
-        throw std::runtime_error("CGI Handler: signalfd() failed");
-
-    PollHandler::getInstance().subscribe_read(g_sig_fd,
-        []() {},
-        []() {
-            // Consume the notification (may represent several children).
-            struct signalfd_siginfo info;
-            if (read(g_sig_fd, &info, sizeof(info)) != sizeof(info))
-                return;
-
-            // Reap every child that exited since the last poll.
-            int status;
-            pid_t pid;
-            while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
-            {
-                auto it = g_pending.find(pid);
-                if (it != g_pending.end())
-                {
-                    auto cb = it->second;
-                    g_pending.erase(it);
-                    cb(status);
-                }
-            }
-        }
-    );
-}
 
 /*
     SERVER and META Keys
@@ -71,7 +30,7 @@ void setupSignalfd()
         REQUEST_URI          raw request target as sent
         QUERY_STRING         everything after '?', raw (req.getURL().getRawQuery())
         SCRIPT_NAME          virtual path of the script
-        SCRIPT_FILENAME      absolute filesystem path (m_filePath) — php-cgi requires it
+        SCRIPT_FILENAME      filesystem path (m_filePath) — php-cgi requires it
         PATH_INFO            extra path after the script name (eg. script.py/data/dev)
         PATH_TRANSLATED      root + PATH_INFO (may be omitted)
         CONTENT_TYPE         from request header, only if present
@@ -92,7 +51,6 @@ static std::string convHeaderKey(const std::string& value){
     std::string result;
     for (size_t i = 0; i < value.length(); ++i)
     {
-        // use static cast<unsigned char> to resolve negative chars
         unsigned char c = static_cast<unsigned char>(value[i]);
         if (c == '-') { result += '_'; continue; }
         if (c >= 'a' && c <= 'z') c = static_cast<unsigned char>(c - 'a' + 'A');
@@ -109,14 +67,14 @@ static bool iequals(const std::string& a, const std::string& b){
     return true;
 }
 
-// Resolve the script to an absolute path. SCRIPT_FILENAME must not depend on
-// the child's working directory, because the child chdir()s into the script's
-// directory before exec (php-cgi resolves SCRIPT_FILENAME against its cwd).
+// Resolve the script to an absolute path when relative
 static std::string resolveScriptPath(const std::string& p)
 {
-    char buf[PATH_MAX];
-    if (realpath(p.c_str(), buf))
-        return buf;
+    if (p.empty() || p[0] == '/')
+        return p;
+    const char* pwd = std::getenv("PWD");
+    if (pwd)
+        return std::string(pwd) + "/" + p;
     return p;
 }
 
@@ -153,7 +111,6 @@ void CGIHandler::setEnv(){
     std::string ct = m_req.getHeader("Content-Type");
     std::string cl = m_req.getHeader("Content-Length");
     if (!ct.empty()) add("CONTENT_TYPE", ct);
-    // count length to push to content length -> chunked
     if (cl.empty() && m_req.isChunked())
         cl = std::to_string(m_req.getBody().size());
     if (!cl.empty()) add("CONTENT_LENGTH", cl);
@@ -162,7 +119,7 @@ void CGIHandler::setEnv(){
 
     for (const auto& [hdr, val] : m_req.getHeaders())
     {
-        if (iequals(hdr, "Content-Type") || iequals(hdr, "Content-Length"))
+        if (iequals(hdr, "content-type") || iequals(hdr, "content-length"))
             continue;
         add("HTTP_" + convHeaderKey(hdr), val);
     }
@@ -245,15 +202,19 @@ void CGIHandler::spawnCGI(){
     int stdin_pipe[2];
     int stdout_pipe[2];
 
-    if (pipe2(stdin_pipe, O_CLOEXEC) < 0 || pipe2(stdout_pipe, O_CLOEXEC) < 0)
+    if (pipe(stdin_pipe) < 0 || pipe(stdout_pipe) < 0)
         return;
+
+    fcntl(stdin_pipe[0], F_SETFD, FD_CLOEXEC);
+    fcntl(stdin_pipe[1], F_SETFD, FD_CLOEXEC);
+    fcntl(stdout_pipe[0], F_SETFD, FD_CLOEXEC);
+    fcntl(stdout_pipe[1], F_SETFD, FD_CLOEXEC);
 
     fcntl(m_conn.fd, F_SETFD, FD_CLOEXEC);
 
     pid_t pid = fork();
     if (pid < 0)
         throw std::runtime_error("CGI Handler: Fork not successful");
-    setupSignalfd();
 
     if (pid == 0)
     {
@@ -263,10 +224,7 @@ void CGIHandler::spawnCGI(){
         close(stdin_pipe[0]);  close(stdin_pipe[1]);
         close(stdout_pipe[0]); close(stdout_pipe[1]);
 
-        char abs_buf[PATH_MAX];
-        std::string absPath = m_filePath;
-        if (realpath(m_filePath.c_str(), abs_buf))
-            absPath = abs_buf;
+        std::string absPath = resolveScriptPath(m_filePath);
 
         // relative paths
         std::string dir = m_filePath.substr(0, m_filePath.find_last_of('/'));
@@ -276,7 +234,7 @@ void CGIHandler::spawnCGI(){
                          const_cast<char*>(absPath.c_str()), nullptr };
         execve(m_iPath.c_str(), argv, m_env.data());
 
-        std::cerr << ("CGI Handler child: Failed exec of interpreter");
+        std::cerr << "CGI Handler child: Failed exec of interpreter" << std::endl;
         _exit(127);
     }
 
@@ -289,13 +247,6 @@ void CGIHandler::spawnCGI(){
     m_pid = pid;
     m_stdout_fd = stdout_pipe[0];
     m_stdin_fd = stdin_pipe[1];
-
-    // Setup exit handler
-    g_pending[m_pid] = [this](int status){
-        m_exitStatus = status;
-        m_status_collected = true;
-        finish();
-    };
 
     const std::string& body = m_req.getBody();
     PollHandler& poll = PollHandler::getInstance();
@@ -326,11 +277,11 @@ void CGIHandler::spawnCGI(){
                 close(fd);
             }
 
-            // Common case: the child already exited, reap it right now.
-            pid_t reaped = waitpid(m_pid, &m_exitStatus, WNOHANG);
+            int status = 0;
+            pid_t reaped = waitpid(m_pid, &status, WNOHANG);
             if (reaped == m_pid)
             {
-                g_pending.erase(m_pid);
+                m_exitStatus = status;
                 m_status_collected = true;
             }
             finish();
@@ -381,7 +332,6 @@ void CGIHandler::killProcess()
         int status = 0;
         waitpid(m_pid, &status, WNOHANG);
         m_exitStatus = status;
-        g_pending.erase(m_pid);
         m_status_collected = true;
     }
     m_output_drained = true;
@@ -392,6 +342,20 @@ bool CGIHandler::checkTimeout(int timeout_seconds)
 {
     if (m_done)
         return false;
+
+    if (!m_status_collected && m_pid > 0)
+    {
+        int status = 0;
+        pid_t reaped = waitpid(m_pid, &status, WNOHANG);
+        if (reaped == m_pid)
+        {
+            m_exitStatus = status;
+            m_status_collected = true;
+            if (m_output_drained)
+                finish();
+        }
+    }
+
     time_t now = std::time(nullptr);
     if (now - m_startTime >= timeout_seconds)
     {
@@ -404,7 +368,19 @@ bool CGIHandler::checkTimeout(int timeout_seconds)
 
 void CGIHandler::finish()
 {
-    if (m_done || !m_output_drained || !m_status_collected)
+    if (m_done)
+        return;
+    if (m_output_drained && !m_status_collected && m_pid > 0)
+    {
+        int status = 0;
+        pid_t reaped = waitpid(m_pid, &status, WNOHANG);
+        if (reaped == m_pid)
+        {
+            m_exitStatus = status;
+            m_status_collected = true;
+        }
+    }
+    if (!m_output_drained || !m_status_collected)
         return;
     m_done = true;
     m_onComplete();
@@ -426,10 +402,111 @@ CGIHandler::~CGIHandler()
         PollHandler::getInstance().unsubscribe(fd);
         close(fd);
     }
-    if (m_pid > 0)
+    if (m_pid > 0 && !m_status_collected)
     {
-        g_pending.erase(m_pid);
         kill(m_pid, SIGKILL);
         waitpid(m_pid, nullptr, WNOHANG);
     }
+}
+
+static bool cgi_iequals(const std::string& a, const std::string& b)
+{
+    if (a.size() != b.size())
+        return false;
+    for (size_t i = 0; i < a.size(); ++i)
+    {
+        if (std::tolower(static_cast<unsigned char>(a[i])) !=
+            std::tolower(static_cast<unsigned char>(b[i])))
+            return false;
+    }
+    return true;
+}
+
+Response CGIHandler::buildResponse(const WebserverSettings* settings) const
+{
+    Response resp;
+    if (!WIFEXITED(m_exitStatus) || WEXITSTATUS(m_exitStatus) != 0 || m_output_exceeded || m_timed_out)
+    {
+        int errCode = m_timed_out ? 504 : 502;
+        return Response::errorResponse(errCode, settings, nullptr);
+    }
+
+    // https://www.rfc-editor.org/info/rfc3875/#section-6.2  
+    size_t header_end = m_output.find("\r\n\r\n");
+    size_t header_len = 4;
+    if (header_end == std::string::npos)
+    {
+        header_end = m_output.find("\n\n");
+        header_len = 2;
+    }
+
+    std::string body = (header_end != std::string::npos)
+                           ? m_output.substr(header_end + header_len)
+                           : m_output;
+
+    resp.setStatus(200);
+    resp.setBody(body);
+
+    bool status_set = false;
+    bool has_location = false;
+
+    if (header_end != std::string::npos)
+    {
+        std::string cgi_headers = m_output.substr(0, header_end);
+        size_t pos = 0;
+        while (pos < cgi_headers.size())
+        {
+            size_t nl = cgi_headers.find('\n', pos);
+            std::string line = (nl != std::string::npos)
+                                   ? cgi_headers.substr(pos, nl - pos)
+                                   : cgi_headers.substr(pos);
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+
+            size_t colon = line.find(':');
+            if (colon != std::string::npos)
+            {
+                std::string key = line.substr(0, colon);
+                std::string val = line.substr(colon + 1);
+
+                size_t k_first = key.find_first_not_of(" \t");
+                size_t k_last = key.find_last_not_of(" \t");
+                if (k_first != std::string::npos)
+                    key = key.substr(k_first, (k_last - k_first + 1));
+
+                size_t v_first = val.find_first_not_of(" \t");
+                size_t v_last = val.find_last_not_of(" \t");
+                if (v_first != std::string::npos)
+                    val = val.substr(v_first, (v_last - v_first + 1));
+                else
+                    val = "";
+
+                if (cgi_iequals(key, "status"))
+                {
+                    unsigned long code = 0;
+                    auto r = std::from_chars(val.data(), val.data() + val.size(), code);
+                    if (r.ec == std::errc() && code >= 100 && code <= 599)
+                    {
+                        resp.setStatus(static_cast<int>(code));
+                        status_set = true;
+                    }
+                }
+                else
+                {
+                    if (cgi_iequals(key, "location"))
+                        has_location = true;
+                    if (!key.empty())
+                        resp.addHeader(key, val);
+                }
+            }
+            if (nl == std::string::npos)
+                break;
+            pos = nl + 1;
+        }
+    }
+    if (has_location && !status_set)
+    {
+        resp.setStatus(302);
+    }
+    return resp;
 }

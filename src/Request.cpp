@@ -1,11 +1,15 @@
-
 #include "Request.hpp"
+#include "Connection.hpp"
 #include "Chunked.hpp"
 #include "Defines.hpp"
-#include "sys/socket.h"
+#include "PollHandler.hpp"
+#include <sys/socket.h>
+#include <unistd.h>
 #include <cctype>
 #include <limits>
 #include <sstream>
+#include <charconv>
+#include <algorithm>
 
 Request& Request::operator=(const Request& other) {
     if (this != &other) {
@@ -60,7 +64,7 @@ Request Request::fromString(const std::string& rawRequest)
     std::istringstream stream(rawRequest);
     std::string line;
 
-    //parse request line
+    // parse request line
     if (std::getline(stream, line) && !line.empty())
     {
         if (line.back() == '\r')
@@ -70,12 +74,8 @@ Request Request::fromString(const std::string& rawRequest)
             throw std::runtime_error("Malformed request line");
         if (req.version != HTTP_VERSION)
             throw HTTPVersionNotSupportedException(std::string(HTTP_VERSION) + " required");
-        // if (req.method != "GET" && req.method != "POST" 
-        //     && req.method != "DELETE" && req.method != "PUT"
-        //     && req.method != "PATCH" && req.method != )
-        //     throw HTTPMethodNotAllowedException("Method not supported");
     }
-    //parse headers, last line is empty
+    // parse headers, last line is empty
     while (std::getline(stream, line) && line != "\r" && !line.empty())
     {
         if (line.back() == '\r')
@@ -152,8 +152,6 @@ Request Request::fromString(const std::string& rawRequest)
 }
 
 const std::string& Request::getHeader(const std::string& key) const {
-    // fromString() stores header keys lowercased, so lookups must
-    // lowercase the key too, or e.g. getHeader("Content-Type") never matches.
     std::string lower_key = key;
     std::transform(lower_key.begin(), lower_key.end(), lower_key.begin(), [](unsigned char c)
         {
@@ -167,15 +165,6 @@ const std::string& Request::getHeader(const std::string& key) const {
     return empty;
 }
 
-
-/**
- * Go through cookie header and split at each delimiter ";"
- * HTTP specs basically require cookies to be joined with a semicolon Delimiter since browsers
- * will literally join multiple cookies with it. e.g. cookie: session_id=8675309; username=admin; etc
- * So we take each of these chunks and tokenize key pairs between the session_id, then the values
- * and return the pairs until we reach the end of the cookie.
- * For now if nothing is found im just passing an empty string.
- */
 std::string Request::getCookie(const std::string& name) const
 {
     std::string cookieHeader = getHeader("Cookie");
@@ -214,4 +203,134 @@ std::string Request::getCookie(const std::string& name) const
     }
 
     return "";
+}
+
+static std::string headerFieldValue(const std::string &lower_haystack, const std::string &name)
+{
+    std::string needle = "\r\n" + name + ":";
+    size_t pos = lower_haystack.find(needle);
+    if (pos == std::string::npos)
+        return "";
+    pos += needle.size();
+    size_t end = lower_haystack.find("\r\n", pos);
+    if (end == std::string::npos)
+        end = lower_haystack.size();
+    std::string value = lower_haystack.substr(pos, end - pos);
+    size_t b = value.find_first_not_of(" \t");
+    size_t e = value.find_last_not_of(" \t");
+    if (b == std::string::npos)
+        return "";
+    return value.substr(b, e - b + 1);
+}
+
+RequestReadState Request::isRequestComplete(Connection &conn)
+{
+    if (!conn.headers_complete)
+    {
+        size_t header_end = conn.read_buffer.find("\r\n\r\n");
+        if (header_end == std::string::npos)
+            return RequestReadState::INCOMPLETE;
+
+        conn.headers_complete = true;
+        conn.header_end = header_end;
+
+        std::string header_part = conn.read_buffer.substr(0, header_end);
+        std::transform(header_part.begin(), header_part.end(), header_part.begin(),
+                       [](unsigned char c)
+                       { return std::tolower(c); });
+
+        std::string expect_value = headerFieldValue(header_part, "expect");
+        std::string cl_value = headerFieldValue(header_part, "content-length");
+        std::string te_value = headerFieldValue(header_part, "transfer-encoding");
+        
+        if (!te_value.empty() && !cl_value.empty())
+            return RequestReadState::BAD_REQUEST;
+
+        if (!te_value.empty())
+        {
+            if (!iequals(te_value, "chunked"))
+                return RequestReadState::NOT_IMPLEMENTED;
+            conn.chunked = true;
+            conn.content_length = 0;
+        }
+        else
+        {
+            conn.chunked = false;
+            if (!cl_value.empty())
+            {
+                unsigned long len{};
+                auto r = std::from_chars(cl_value.data(), cl_value.data() + cl_value.size(), len);
+                if (r.ec != std::errc() || r.ptr != cl_value.data() + cl_value.size())
+                    return RequestReadState::BAD_REQUEST; // malformed content-length
+                conn.content_length = static_cast<size_t>(len);
+            }
+            else
+                conn.content_length = 0;
+        }
+        if (!expect_value.empty())
+        {
+            if (expect_value != "100-continue") // https://www.rfc-editor.org/info/rfc9110/#field.expect
+                return RequestReadState::EXPECTATION_FAILED;
+            size_t max_body_size = conn.settings ? conn.settings->max_body_size : DEFAULT_MAX_BODY_SIZE;
+            if (conn.content_length > max_body_size)
+            {
+                return RequestReadState::PAYLOAD_TOO_LARGE;
+            }
+            // check if readbuffer is already big enough to contain data:
+            if (conn.read_buffer.size() < conn.header_end + 4 + conn.content_length)
+            {
+                if (conn.fd >= 0)
+                {
+                    PollHandler::getInstance().subscribe_write(conn.fd,
+                        [fd = conn.fd](){
+                            ::close(fd);
+                            PollHandler::getInstance().unsubscribe(fd);
+                        },
+                        [fd = conn.fd](){
+                            std::string msg = "HTTP/1.1 100 Continue\r\n\r\n";
+                            ::write(fd, msg.c_str(), msg.length());
+                            PollHandler::getInstance().unsubscribe(fd);
+                        }
+                    );
+                }
+                return RequestReadState::INCOMPLETE;
+            }
+        }
+    }
+
+    size_t body_start = conn.header_end + 4;
+
+    if (conn.chunked)
+    {
+        size_t max = conn.settings ? conn.settings->max_body_size : DEFAULT_MAX_BODY_SIZE;
+        std::string framed = conn.read_buffer.substr(body_start);
+        std::string decoded;
+        size_t consumed = 0;
+        switch (ChunkedBody::decode(framed, max, decoded, consumed))
+        {
+        case ChunkResult::INCOMPLETE:
+            return RequestReadState::INCOMPLETE;
+        case ChunkResult::MALFORMED:
+            return RequestReadState::BAD_REQUEST;
+        case ChunkResult::TOO_LARGE:
+            return RequestReadState::PAYLOAD_TOO_LARGE;
+        case ChunkResult::COMPLETE:
+            if (conn.read_buffer.size() >= body_start + consumed)
+            {
+                conn.raw_body_length = consumed;
+                return RequestReadState::COMPLETE;
+            }
+            return RequestReadState::INCOMPLETE;
+        }
+    }
+
+    size_t max = conn.settings ? conn.settings->max_body_size : DEFAULT_MAX_BODY_SIZE;
+    if (conn.content_length > max)
+        return RequestReadState::PAYLOAD_TOO_LARGE;
+    if (conn.read_buffer.size() >= body_start + conn.content_length)
+    {
+        conn.raw_body_length = conn.content_length;
+        return RequestReadState::COMPLETE;
+    }
+    return RequestReadState::INCOMPLETE;
 }

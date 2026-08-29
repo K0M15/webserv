@@ -3,10 +3,7 @@
 #include <sstream>
 #include <vector>
 #include <string>
-#include "CGIHandler.hpp"
-
-#define private public
-#include "ConnectionManager.hpp"
+#include "Request.hpp"
 #include "WebserverSettings.hpp"
 #include "Connection.hpp"
 
@@ -52,9 +49,8 @@ static void test_expect_payload_too_large() {
         "Content-Length: 5000\r\n"
         "Expect: 100-continue\r\n"
         "\r\n";
-    ConnectionManager cm;
     Connection conn = createDummyConnection(raw, 1000); // limit is 1000, body length is 5000
-    RequestReadState state = cm.isRequestComplete(conn);
+    RequestReadState state = Request::isRequestComplete(conn);
 
     check("Expect: 100-continue respects max_body_size (413 Payload Too Large)",
           state == RequestReadState::PAYLOAD_TOO_LARGE);
@@ -69,9 +65,8 @@ static void test_expect_same_time_headers_and_payload() {
         "Expect: 100-continue\r\n"
         "\r\n"
         "hello";
-    ConnectionManager cm;
     Connection conn = createDummyConnection(raw, 1000);
-    RequestReadState state = cm.isRequestComplete(conn);
+    RequestReadState state = Request::isRequestComplete(conn);
 
     check("Expect: 100-continue returns COMPLETE when header & payload arrive at same time",
           state == RequestReadState::COMPLETE);
@@ -86,9 +81,8 @@ static void test_expect_partial_payload() {
         "Expect: 100-continue\r\n"
         "\r\n"
         "hel"; // only 3 of 10 bytes
-    ConnectionManager cm;
     Connection conn = createDummyConnection(raw, 1000);
-    RequestReadState state = cm.isRequestComplete(conn);
+    RequestReadState state = Request::isRequestComplete(conn);
 
     check("Expect: 100-continue returns INCOMPLETE for partial payload",
           state == RequestReadState::INCOMPLETE);
@@ -102,9 +96,8 @@ static void test_expect_invalid_expectation() {
         "Content-Length: 5\r\n"
         "Expect: 200-ok\r\n"
         "\r\n";
-    ConnectionManager cm;
     Connection conn = createDummyConnection(raw, 1000);
-    RequestReadState state = cm.isRequestComplete(conn);
+    RequestReadState state = Request::isRequestComplete(conn);
 
     check("Expect: unsupported expectation returns EXPECTATION_FAILED (417)",
           state == RequestReadState::EXPECTATION_FAILED);
@@ -123,9 +116,8 @@ static void test_chunked_keep_alive_buffer_cleanup() {
         "Host: localhost\r\n"
         "\r\n";
 
-    ConnectionManager cm;
     Connection conn = createDummyConnection(first_chunked + second_request, 1000);
-    RequestReadState state = cm.isRequestComplete(conn);
+    RequestReadState state = Request::isRequestComplete(conn);
 
     check("Chunked: isRequestComplete returns COMPLETE for pipelined chunked request",
           state == RequestReadState::COMPLETE);
@@ -146,7 +138,7 @@ static void test_chunked_keep_alive_buffer_cleanup() {
     conn.header_end = 0;
     conn.chunked = false;
 
-    RequestReadState next_state = cm.isRequestComplete(conn);
+    RequestReadState next_state = Request::isRequestComplete(conn);
     check("Chunked: second pipelined request completes successfully",
           next_state == RequestReadState::COMPLETE);
 
