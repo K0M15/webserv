@@ -39,5 +39,6 @@ struct Connection {
     const WebserverSettings* settings;
     std::vector<const WebserverSettings*> candidates;
     std::unique_ptr<CGIHandler> cgi_handler;
+
     Connection(int fd, const sockaddr_in& a, const std::vector<const WebserverSettings*> candidates);
 };
