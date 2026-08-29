@@ -685,7 +685,7 @@ void ConnectionManager::handleRequest(Connection &conn, const Request &req)
     conn.settings = resolveSettings(conn, req);
     Method m = parseMethod(req.getMethod());
     conn.is_head_request = (m == HEAD);
-    std::string url_path = req.getURL().str();
+    std::string url_path = req.getURL().getPath();
     std::string url_file = url_path.substr(0, url_path.find('?'));
 
     //can do wrapper here i guess
@@ -1084,7 +1084,7 @@ void ConnectionManager::handlePost(Connection &conn, const Request &req,
         return;
     }
 
-    std::string url_path = PathUtils::stripQuery(req.getURL().str());
+    std::string url_path = PathUtils::stripQuery(req.getURL().getPath());
     std::string dest_path;
     PathUtils::ResolveResult r = PathUtils::resolveUnder(
         location->upload_dir, url_path, location->path, dest_path, false);
