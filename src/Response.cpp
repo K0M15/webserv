@@ -156,8 +156,8 @@ Response Response::dirindex(const std::string& path, const std::string prefix)
             std::tm local_tm = *std::localtime(&mtime.tv_sec);
             document << "<tr><td><a href=\"" << prefix + "/" + entry->d_name << "\">" << entry->d_name <<"</a></td><td>" << s <<" byte </td><td>" << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S") << "</td></tr>\n";
         }
+        ::closedir(dir);
     }
-    ::closedir(dir);
     document << "</table>";
     document << "</body></html>";
     resp.setBody(document.str());

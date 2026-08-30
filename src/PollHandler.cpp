@@ -51,9 +51,9 @@ void PollHandler::subscribe_write(int fd, fvoid_t on_close, fvoid_t on_writeable
 void PollHandler::subscribe(int fd, fvoid_t on_close, fvoid_t on_readable, fvoid_t on_writeable) {
     auto e = getEventByFD(fd);
     if (e != nullptr) {
-        if (on_close != nullptr) e->on_close = on_close;
-        if (on_readable != nullptr) e->on_readable = on_readable;
-        if (on_writeable != nullptr) e->on_writeable = on_writeable;
+        e->on_close = on_close;
+        e->on_readable = on_readable;
+        e->on_writeable = on_writeable;
 
         e->event = 0;
         if (e->on_close)    e->event |= (POLLERR | POLLHUP | POLLNVAL);
@@ -115,7 +115,7 @@ void PollHandler::checkFDs() {
         }
         if (revents & (POLLERR | POLLHUP | POLLNVAL)) {
             e = getEventByFD(current_fd);
-            if (e->on_close) {
+            if (e && e->on_close) {
                 auto close_cb = e->on_close;
                 close_cb();
             }

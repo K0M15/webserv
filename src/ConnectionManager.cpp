@@ -45,7 +45,7 @@ void ConnectionManager::acceptConnection(int listen_fd, const std::vector<const 
         return;
     }
     flags = fcntl(client_fd, F_GETFL);
-    if (fcntl(client_fd, F_SETFL, O_NONBLOCK) == -1)
+    if (fcntl(client_fd, F_SETFL, flags | O_NONBLOCK) == -1)
     {
         std::cerr << "accept() error: setting file descriptor non-blocking flags" << std::endl;
         ::close(client_fd);
