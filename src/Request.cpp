@@ -10,7 +10,6 @@
 #include <sstream>
 #include <charconv>
 #include <algorithm>
-#include <cerrno>
 
 Request& Request::operator=(const Request& other) {
     if (this != &other) {
@@ -305,7 +304,7 @@ RequestReadState Request::isRequestComplete(Connection &conn)
                             PollHandler::getInstance().unsubscribe(fd);
                         }),
                         nullptr, // remove read callback
-                        [fd = conn.fd, state, conn](){
+                        [fd = conn.fd, state](){
                             if (state->bytes_sent < state->msg.size()) // check if message is sent
                             {
                                 ssize_t n = ::write(fd, state->msg.data() + state->bytes_sent, state->msg.size() - state->bytes_sent);
