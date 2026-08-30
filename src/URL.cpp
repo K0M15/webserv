@@ -67,10 +67,23 @@ const std::unordered_map<std::string, std::string> URL::getQuery() const {
         size_t next_and = raw.find('&', pos);
         std::string curr_pair = (next_and == std::string::npos ? raw.substr(pos) : raw.substr(pos, next_and - pos));
         size_t curr_equ = curr_pair.find('=');
-        if (curr_equ != std::string::npos)
-            result[curr_pair.substr(0, curr_equ)] = curr_pair.substr(curr_equ + 1);
-        else if (!curr_pair.empty())
-            result[curr_pair] = "";
+        if (curr_equ != std::string::npos) {
+            std::string key = curr_pair.substr(0, curr_equ);
+            std::string val = curr_pair.substr(curr_equ + 1);
+            std::string decoded_key, decoded_val;
+            if (PathUtils::urlDecode(key, decoded_key, true))
+                key = decoded_key;
+            if (PathUtils::urlDecode(val, decoded_val, true))
+                val = decoded_val;
+            result[key] = val;
+        }
+        else if (!curr_pair.empty()) {
+            std::string key = curr_pair;
+            std::string decoded_key;
+            if (PathUtils::urlDecode(key, decoded_key, true))
+                key = decoded_key;
+            result[key] = "";
+        }
         if (next_and == std::string::npos)
             break;
         pos = next_and + 1;

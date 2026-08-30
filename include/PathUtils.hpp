@@ -14,6 +14,8 @@ public:
     };
 
     static std::string    stripQuery(const std::string& url);
+    static bool           urlDecode(const std::string& in, std::string& out, bool plus_as_space = false);
+    static std::string    urlDecode(const std::string& in, bool plus_as_space = false);
     static bool           isSafeRelative(const std::string& p);
     static ResolveResult  resolveUnder(const std::string& base, const std::string& url_path,
                                         const std::string& location_prefix, std::string& out, bool allow_nested = true);

@@ -1,4 +1,5 @@
 #include "SessionManager.hpp"
+#include "PathUtils.hpp"
 #include <cstdlib>
 #include <sstream>
 #include <iomanip>
@@ -65,7 +66,14 @@ std::string SessionManager::extractField(const std::string &body, const std::str
             pair = body.substr(position, ampersandPosition - position);
 
         if (pair.compare(0, fieldPrefix.size(), fieldPrefix) == 0)
-            return pair.substr(fieldPrefix.size());
+        {
+            // decode % encoded url params
+            std::string rawVal = pair.substr(fieldPrefix.size());
+            std::string decoded;
+            if (PathUtils::urlDecode(rawVal, decoded, true))
+                return decoded;
+            return rawVal;
+        }
         if (ampersandPosition == std::string::npos)
             break;
         position = ampersandPosition + 1;

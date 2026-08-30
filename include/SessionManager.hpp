@@ -47,6 +47,7 @@ public:
                     Response& outErrorResponse);
 
     bool hasActiveSession(const std::string& sessionId) const;
+    static std::string extractField(const std::string& body, const std::string& fieldName);
 
 private:
     InMemoryDB<std::string, SessionInfo> m_activeSessions;
@@ -54,6 +55,5 @@ private:
 
     static std::string generateSessionId();
     static std::string formatCookieHeader(const SessionCookie& cookie);
-    static std::string extractField(const std::string& body, const std::string& fieldName);
 };
 

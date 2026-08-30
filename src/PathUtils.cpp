@@ -1,5 +1,5 @@
 #include "PathUtils.hpp"
-
+#include <cctype>
 
 std::string PathUtils::stripQuery(const std::string& url)
 {
@@ -7,6 +7,45 @@ std::string PathUtils::stripQuery(const std::string& url)
     if (cut == std::string::npos)
         return url;
     return url.substr(0, cut);
+}
+
+bool PathUtils::urlDecode(const std::string& in, std::string& out, bool plus_as_space)
+{
+    out.clear();
+    out.reserve(in.size());
+    for (size_t i = 0; i < in.size(); ++i)
+    {
+        if (in[i] == '%')
+        {
+            if (i + 2 >= in.size())
+                return false;
+            char h1 = in[i + 1];
+            char h2 = in[i + 2];
+            if (!std::isxdigit(static_cast<unsigned char>(h1)) || !std::isxdigit(static_cast<unsigned char>(h2)))
+                return false;
+            int v1 = std::isdigit(static_cast<unsigned char>(h1)) ? (h1 - '0') : (std::tolower(static_cast<unsigned char>(h1)) - 'a' + 10);
+            int v2 = std::isdigit(static_cast<unsigned char>(h2)) ? (h2 - '0') : (std::tolower(static_cast<unsigned char>(h2)) - 'a' + 10);
+            out.push_back(static_cast<char>((v1 << 4) | v2));
+            i += 2;
+        }
+        else if (plus_as_space && in[i] == '+')
+        {
+            out.push_back(' ');
+        }
+        else
+        {
+            out.push_back(in[i]);
+        }
+    }
+    return true;
+}
+
+std::string PathUtils::urlDecode(const std::string& in, bool plus_as_space)
+{
+    std::string out;
+    if (!urlDecode(in, out, plus_as_space))
+        return in;
+    return out;
 }
 
 bool PathUtils::isSafeRelative(const std::string& p)
@@ -53,6 +92,14 @@ PathUtils::ResolveResult PathUtils::resolveUnder(const std::string& base, const 
     {
         path.erase(0, location_prefix.size());
     }
+
+    std::string decoded;
+    if (!urlDecode(path, decoded, false))
+    {
+        out.clear();
+        return RESOLVE_BAD_PATH;
+    }
+    path = decoded;
 
     while (!path.empty() && path[0] == '/')
         path.erase(0, 1);
