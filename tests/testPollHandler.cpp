@@ -155,30 +155,30 @@ static void test_subscribe_update_add_write() {
 	PollHandler::EventType* ev = ph.getEventByFD(5);
 	check("subscribe_update: event exists", ev != nullptr);
 	if (!ev) return;
-	check("subscribe_update: on_readable preserved", ev->on_readable != nullptr);
+	// check("subscribe_update: on_readable preserved", ev->on_readable != nullptr); // wont work anymore since second subscribe call will now overwrite the read one
 	check("subscribe_update: on_writeable added", ev->on_writeable != nullptr);
 	check("subscribe_update: on_close still null", ev->on_close == nullptr);
-	check("subscribe_update: POLLIN set", (ev->event & POLLIN) != 0);
+	// check("subscribe_update: POLLIN set", (ev->event & POLLIN) != 0); // same as preserved
 	check("subscribe_update: POLLOUT set", (ev->event & POLLOUT) != 0);
 	check("subscribe_update: no close flags", (ev->event & (POLLERR | POLLHUP | POLLNVAL)) == 0);
 }
 
-static void test_subscribe_update_null_preserves() {
-	PollHandler ph;
-	fvoid_t read_fn = make_dummy();
-	fvoid_t close_fn = make_dummy();
+// static void test_subscribe_update_null_preserves() {
+// 	PollHandler ph;
+// 	fvoid_t read_fn = make_dummy();
+// 	fvoid_t close_fn = make_dummy();
 
-	ph.subscribe_read(6, close_fn, read_fn);
-	ph.subscribe(6, nullptr, nullptr, nullptr);
+// 	ph.subscribe_read(6, close_fn, read_fn);
+// 	ph.subscribe(6, nullptr, nullptr, nullptr);
 
-	PollHandler::EventType* ev = ph.getEventByFD(6);
-	check("update_null: event exists", ev != nullptr);
-	if (!ev) return;
-	check("update_null: on_close preserved", ev->on_close != nullptr);
-	check("update_null: on_readable preserved", ev->on_readable != nullptr);
-	check("update_null: POLLIN preserved", (ev->event & POLLIN) != 0);
-	check("update_null: close flags preserved", (ev->event & (POLLERR | POLLHUP | POLLNVAL)) != 0);
-}
+// 	PollHandler::EventType* ev = ph.getEventByFD(6);
+// 	check("update_null: event exists", ev != nullptr);
+// 	if (!ev) return;
+// 	check("update_null: on_close preserved", ev->on_close != nullptr);
+// 	check("update_null: on_readable preserved", ev->on_readable != nullptr);
+// 	check("update_null: POLLIN preserved", (ev->event & POLLIN) != 0);
+// 	check("update_null: close flags preserved", (ev->event & (POLLERR | POLLHUP | POLLNVAL)) != 0);
+// }
 
 static void test_subscribe_update_replace_read() {
 	PollHandler ph;
@@ -517,7 +517,7 @@ int main() {
 	test_subscribe_new_both();
 	test_subscribe_no_callbacks_throws();
 	test_subscribe_update_add_write();
-	test_subscribe_update_null_preserves();
+	// test_subscribe_update_null_preserves(); // wont work after handler restructoring and prevention of unintuitive subscribe calls
 	test_subscribe_update_replace_read();
 	test_getEventByFD_found();
 	test_getEventByFD_not_found();
