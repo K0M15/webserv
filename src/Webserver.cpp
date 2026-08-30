@@ -23,6 +23,7 @@ Webserver::Webserver(const std::string& config_path)
     g_server = this;
     std::signal(SIGINT, signalHandler);
     std::signal(SIGTERM, signalHandler);
+    std::signal(SIGPIPE, SIG_IGN);
 
     setupListenSockets();
 }
@@ -102,15 +103,25 @@ int Webserver::createListenSocket(const ListenDirective& ld)
         ::close(fd);
         return -1;
     }
-    int flags = fcntl(fd, F_GETFD);
+    int flags = 0;
+#if defined(REAPPLY_SET_FLAGS) && defined(SETFD_ALLOWED)
+    flags = fcntl(fd, GETFD);
     if (fcntl(fd, F_SETFD, flags | FD_CLOEXEC) < 0)
+#else
+    (void) flags;
+    if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0)
+#endif
     {
         std::cerr << "fcntl(FD_CLOEXEC) failed: error setting listening socket file descriptor flags" << std::endl;
         ::close(fd);
         return -1;
     }
+#ifdef REAPPLY_SET_FLAGS
     flags = fcntl(fd, F_GETFL);
     if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0)
+#else
+    if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0)
+#endif
     {
         std::cerr << "fcntl(O_NONBLOCK) failed: error setting listening socket file descriptor flags" << std::endl;
         ::close(fd);

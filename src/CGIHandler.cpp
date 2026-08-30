@@ -5,7 +5,7 @@
 #include <sys/wait.h>   // waitpid, WNOHANG, WIFEXITED, WEXITSTATUS
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <signal.h>     // kill, SIGKILL
+#include <csignal>
 #include <limits.h>     // PATH_MAX
 #include <cstdio>       // perror
 #include <cstdlib>      // getenv
@@ -271,7 +271,6 @@ void CGIHandler::spawnCGI(){
                 return;
             }
         }
-
         if (n == 0) // EOF: child closed stdout (or exited)
         {
             m_output_drained = true;
@@ -280,7 +279,7 @@ void CGIHandler::spawnCGI(){
                 int fd = m_stdout_fd;
                 m_stdout_fd = -1;
                 PollHandler::getInstance().unsubscribe(fd);
-                close(fd);
+                ::close(fd);
             }
 
             int status = 0;

@@ -38,14 +38,24 @@ void ConnectionManager::acceptConnection(int listen_fd, const std::vector<const 
         std::cerr << "accept() error: error accepting new connection" << std::endl;
         return;
     }
-    int flags = fcntl(client_fd, F_GETFD);
+    int flags = 0;
+#if defined(REAPPLY_SET_FLAGS) && defined(SETFD_ALLOWED)
+    flags = fcntl(client_fd, F_GETFD);
     if (fcntl(client_fd, F_SETFD, flags | FD_CLOEXEC) == -1) {
+#else
+    (void) flags;
+    if (fcntl(client_fd, F_SETFD, FD_CLOEXEC) == -1) {
+#endif
         std::cerr << "accept() error: setting file descriptor close-on-exec flags" << std::endl;
         ::close(client_fd);
         return;
     }
+#ifdef REAPPLY_SET_FLAGS
     flags = fcntl(client_fd, F_GETFL);
     if (fcntl(client_fd, F_SETFL, flags | O_NONBLOCK) == -1)
+#else
+    if (fcntl(client_fd, F_SETFL, O_NONBLOCK) == -1)
+#endif
     {
         std::cerr << "accept() error: setting file descriptor non-blocking flags" << std::endl;
         ::close(client_fd);
