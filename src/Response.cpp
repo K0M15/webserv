@@ -66,7 +66,7 @@ std::string Response::toString() const
     for (const auto& header : m_headers)
         oss << header.first << ": " << header.second << "\r\n";
 
-    if (m_headers.find("Content-Length") == m_headers.end())
+    if (m_headers.find("Content-Length") == m_headers.end() && m_status != 204)
         oss << "Content-Length: " << m_body.size() << "\r\n";
 
     oss << "Connection: " << (m_keep_alive ? "keep-alive" : "close") << "\r\n";
@@ -143,7 +143,7 @@ Response Response::dirindex(const std::string& path, const std::string prefix)
         {
             if (std::string(entry->d_name) == "." || std::string(entry->d_name) == "..")
                 continue;
-            if (stat(std::string(path + entry->d_name).c_str(), &entryStat))
+            if (stat(std::string(path + "/" + entry->d_name).c_str(), &entryStat))
             {
 #ifndef DEBUG
                 std::cout << "[Error] stat reading " << path << entry->d_name << " , error reading directory entry" << std::endl;
