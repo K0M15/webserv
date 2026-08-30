@@ -152,8 +152,8 @@ Response Response::dirindex(const std::string& path, const std::string prefix)
 #endif /* DEBUG */
             }
             size_t s = entryStat.st_size;
-            timespec mtime = entryStat.st_mtim;
-            std::tm local_tm = *std::localtime(&mtime.tv_sec);
+            time_t mtime = entryStat.st_mtime;
+            std::tm local_tm = *std::localtime(&mtime);
             document << "<tr><td><a href=\"" << prefix + "/" + entry->d_name << "\">" << entry->d_name <<"</a></td><td>" << s <<" byte </td><td>" << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S") << "</td></tr>\n";
         }
         ::closedir(dir);
@@ -188,6 +188,8 @@ Response Response::errorResponse(
         std::string root = (location && !location->root.empty())
                                ? location->root
                                : settings->root;
+        // check for trailing /
+        root = root.back() == '/' ? root : root + "/";
         std::string full_path = root + *error_path;
 
         std::ifstream file(full_path);
