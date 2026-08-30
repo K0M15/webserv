@@ -262,7 +262,7 @@ void RequestHandler::handleRequest(Connection &conn, const Request &req,
 #ifndef DISABLE_PATCH_AUTH
             if (sessionManager.handleRole(req, conn.settings, location, "admin", authErr))
 #endif
-                handlePatch(conn, root, url_path, location, connManager);
+                handlePatch(conn, root, req, url_path, location, connManager);
 #ifndef DISABLE_PATCH_AUTH
             else
                 connManager.sendResponse(conn, authErr);
@@ -567,6 +567,7 @@ void RequestHandler::handlePut(Connection &conn, const std::string &root,
 }
 
 void RequestHandler::handlePatch(Connection &conn, const std::string &root,
+                                 const Request &req,
                                  const std::string &url_path,
                                  const LocationConfig *location,
                                  ConnectionManager &connManager)
@@ -584,7 +585,7 @@ void RequestHandler::handlePatch(Connection &conn, const std::string &root,
         connManager.sendResponse(conn, Response::errorResponse(500, conn.settings, location));
         return;
     }
-    outfile.write(conn.read_buffer.data(), conn.read_buffer.size());
+    outfile.write(req.getBody().data(), req.getBody().size());
     outfile.close();
     if (!outfile.good())
     {

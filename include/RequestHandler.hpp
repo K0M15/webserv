@@ -54,7 +54,8 @@ private:
                    const LocationConfig* location,
                    ConnectionManager& connManager);
     void handlePatch(Connection& conn, const std::string& root,
-                     const std::string& url_path, const LocationConfig* location,
+                     const Request& req, const std::string& url_path,
+                     const LocationConfig* location,
                      ConnectionManager& connManager);
 };
 
