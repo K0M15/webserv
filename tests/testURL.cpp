@@ -198,6 +198,12 @@ static void test_getQuery() {
     URL u5("/path");
     auto m5 = u5.getQuery();
     check("no query returns empty map", m5.empty());
+
+    URL u6("/search?q=hello%20world&user=admin%40site.com&tag=c%2B%2B");
+    auto m6 = u6.getQuery();
+    check("decoded query param spaces %20", m6["q"] == "hello world");
+    check("decoded query param special %40", m6["user"] == "admin@site.com");
+    check("decoded query param plus %2B", m6["tag"] == "c++");
 }
 
 // --------------- operator>> ---------------
