@@ -3,9 +3,13 @@
 #include <sstream>
 #include <vector>
 #include <string>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/socket.h>
 #include "Request.hpp"
 #include "WebserverSettings.hpp"
 #include "Connection.hpp"
+#include "PollHandler.hpp"
 
 static int g_passed = 0;
 static int g_failed = 0;
@@ -145,6 +149,61 @@ static void test_chunked_keep_alive_buffer_cleanup() {
     delete conn.settings;
 }
 
+static void test_expect_live_socket_continue_and_resubscribe_read() {
+    int fds[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) < 0)
+        return;
+
+    fcntl(fds[0], F_SETFL, O_NONBLOCK);
+    fcntl(fds[1], F_SETFL, O_NONBLOCK);
+
+    bool read_cb_fired = false;
+    PollHandler::getInstance().subscribe_read(fds[0],
+        [fd = fds[0]]() { PollHandler::getInstance().unsubscribe(fd); },
+        [&read_cb_fired]() { read_cb_fired = true; }
+    );
+
+    std::string raw =
+        "POST /upload HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "Content-Length: 10\r\n"
+        "Expect: 100-continue\r\n"
+        "\r\n";
+
+    Connection conn = createDummyConnection(raw, 1000);
+    conn.fd = fds[0];
+
+    RequestReadState state = Request::isRequestComplete(conn);
+    check("Expect: 100-continue returns INCOMPLETE", state == RequestReadState::INCOMPLETE);
+    check("Expect: sent_100_continue is marked true", conn.sent_100_continue == true);
+
+    // Poll should fire write callback and send 100 Continue
+    PollHandler::getInstance().setTimeout(50);
+    PollHandler::getInstance().checkFDs();
+
+    // Check data received on other end
+    char buf[128];
+    ssize_t n = ::read(fds[1], buf, sizeof(buf));
+    std::string received(buf, n > 0 ? n : 0);
+    check("Expect: 100 Continue response sent to socket", received == "HTTP/1.1 100 Continue\r\n\r\n");
+
+    // Check that fds[0] is now re-subscribed for reading
+    auto ev = PollHandler::getInstance().getEventByFD(fds[0]);
+    check("Expect: socket event exists in poll", ev != nullptr);
+    check("Expect: socket is subscribed for reading", ev && ev->on_readable != nullptr);
+    check("Expect: socket is not subscribed for writing anymore", ev && ev->on_writeable == nullptr);
+
+    // Send payload from client end to verify read callback fires
+    ::write(fds[1], "0123456789", 10);
+    PollHandler::getInstance().checkFDs();
+    check("Expect: read callback fired after 100 Continue", read_cb_fired == true);
+
+    PollHandler::getInstance().unsubscribe(fds[0]);
+    ::close(fds[0]);
+    ::close(fds[1]);
+    delete conn.settings;
+}
+
 int main() {
     std::cout << "--- Expect & Chunked Keep-Alive Test Suite ---\n" << std::endl;
 
@@ -152,6 +211,7 @@ int main() {
     test_expect_same_time_headers_and_payload();
     test_expect_partial_payload();
     test_expect_invalid_expectation();
+    test_expect_live_socket_continue_and_resubscribe_read();
     test_chunked_keep_alive_buffer_cleanup();
 
     std::cout << "\n----------------------------------------" << std::endl;

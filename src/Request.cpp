@@ -10,6 +10,7 @@
 #include <sstream>
 #include <charconv>
 #include <algorithm>
+#include <cerrno>
 
 Request& Request::operator=(const Request& other) {
     if (this != &other) {
@@ -279,17 +280,56 @@ RequestReadState Request::isRequestComplete(Connection &conn)
             // check if readbuffer is already big enough to contain data:
             if (conn.read_buffer.size() < conn.header_end + 4 + conn.content_length)
             {
-                if (conn.fd >= 0)
+                if (conn.fd >= 0 && !conn.sent_100_continue)
                 {
-                    PollHandler::getInstance().subscribe_write(conn.fd,
-                        [fd = conn.fd](){
+                    // msg is big enough, so no msg is needed
+                    conn.sent_100_continue = true;
+                    auto prev = PollHandler::getInstance().getEventByFD(conn.fd);
+                    fvoid_t on_read = prev ? prev->on_readable : nullptr;
+                    fvoid_t on_close = prev ? prev->on_close : nullptr;
+
+                    // construct temporary struct for switching values.
+                    struct ContinueWriter {
+                        std::string msg = "HTTP/1.1 100 Continue\r\n\r\n";
+                        size_t bytes_sent = 0;
+                        fvoid_t on_readable;    // old handlers, needed for resubbing
+                        fvoid_t on_close;       // old handlers, needed for resubbing
+                    };
+                    auto state = std::make_shared<ContinueWriter>(); // expand lifetime
+                    state->on_readable = on_read;
+                    state->on_close = on_close;
+
+                    PollHandler::getInstance().subscribe(conn.fd,
+                        on_close ? on_close : fvoid_t([fd = conn.fd](){
                             ::close(fd);
                             PollHandler::getInstance().unsubscribe(fd);
-                        },
-                        [fd = conn.fd](){
-                            std::string msg = "HTTP/1.1 100 Continue\r\n\r\n";
-                            ::write(fd, msg.c_str(), msg.length());
-                            PollHandler::getInstance().unsubscribe(fd);
+                        }),
+                        nullptr, // remove read callback
+                        [fd = conn.fd, state, conn](){
+                            if (state->bytes_sent < state->msg.size()) // check if message is sent
+                            {
+                                ssize_t n = ::write(fd, state->msg.data() + state->bytes_sent, state->msg.size() - state->bytes_sent);
+                                if (n > 0)
+                                    state->bytes_sent += static_cast<size_t>(n);
+                                else if (n < 0) // Error Handling, close on error
+                                {
+                                    std::cerr << "Error writing 100-continue message" << std::endl;
+                                    if (state->on_close)
+                                        state->on_close();
+                                    else
+                                    {
+                                        ::close(fd);
+                                        PollHandler::getInstance().unsubscribe(fd);
+                                    }
+                                    return;
+                                }
+                            }
+                            if (state->bytes_sent >= state->msg.size())
+                            {
+                                // if message is sent, re-register cb
+                                if (state->on_readable)
+                                    PollHandler::getInstance().subscribe_read(fd, state->on_close, state->on_readable);
+                            }
                         }
                     );
                 }
