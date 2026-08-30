@@ -3,7 +3,8 @@
 #include <unistd.h>     // fork, dup2, pipe, chdir, _exit
 #include <fcntl.h>      // F_SETFD, FD_CLOEXEC, F_SETFL, O_NONBLOCK
 #include <sys/wait.h>   // waitpid, WNOHANG, WIFEXITED, WEXITSTATUS
-#include <sys/socket.h> // inet_ntoa
+#include <sys/socket.h>
+#include <netinet/in.h>
 #include <signal.h>     // kill, SIGKILL
 #include <limits.h>     // PATH_MAX
 #include <cstdio>       // perror
@@ -115,7 +116,12 @@ void CGIHandler::setEnv(){
         cl = std::to_string(m_req.getBody().size());
     if (!cl.empty()) add("CONTENT_LENGTH", cl);
 
-    add("REMOTE_ADDR", inet_ntoa(m_conn.addr.sin_addr));
+    uint32_t ip = ntohl(m_conn.addr.sin_addr.s_addr);
+    std::string remote_addr = std::to_string((ip >> 24) & 0xFF) + "." +
+                              std::to_string((ip >> 16) & 0xFF) + "." +
+                              std::to_string((ip >> 8) & 0xFF) + "." +
+                              std::to_string(ip & 0xFF);
+    add("REMOTE_ADDR", remote_addr);
 
     for (const auto& [hdr, val] : m_req.getHeaders())
     {

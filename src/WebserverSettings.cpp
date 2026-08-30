@@ -1,7 +1,9 @@
 #include "WebserverSettings.hpp"
 #include <sstream>
 #include <cstdlib>
-#include <arpa/inet.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <cstring>
 #include <algorithm>
 #include <cctype>
 #include <limits>
@@ -21,8 +23,17 @@ static std::string valueAfter(const std::string& line, const std::string& keywor
 
 static bool isValidIPv4(const std::string& address)
 {
-    struct in_addr addr;
-    return inet_pton(AF_INET, address.c_str(), &addr) == 1;
+    struct addrinfo hints;
+    struct addrinfo* res = nullptr;
+    std::memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_NUMERICHOST;
+
+    if (getaddrinfo(address.c_str(), nullptr, &hints, &res) != 0)
+        return false;
+    freeaddrinfo(res);
+    return true;
 }
 
 static bool isAllDigits(const std::string& s)

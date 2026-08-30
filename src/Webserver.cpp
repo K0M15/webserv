@@ -1,7 +1,7 @@
 #include "Webserver.hpp"
 #include "Defines.hpp"
 #include <sys/socket.h>
-#include <arpa/inet.h>
+#include <netdb.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <cstring>
@@ -29,13 +29,15 @@ Webserver::Webserver(const std::string& config_path)
 
 Webserver::~Webserver()
 {
+    stop();
+    if (g_server == this)
+        g_server = nullptr;
     for (const auto& pair : m_listen_fds)
     {
         PollHandler::getInstance().unsubscribe(pair.second);
         ::close(pair.second);
     }
     m_listen_fds.clear();
-    g_server = nullptr;
 }
 
 void Webserver::stop()
@@ -67,11 +69,24 @@ int Webserver::createListenSocket(const ListenDirective& ld)
 
     if (ld.address.empty() || ld.address == DEFAULT_LISTEN_ADDRESS)
         addr.sin_addr.s_addr = INADDR_ANY;
-    else if (inet_pton(AF_INET, ld.address.c_str(), &addr.sin_addr) <= 0)
+    else
     {
-        std::cerr << "inet_pton() failed for address: " << ld.address << std::endl;
-        ::close(fd);
-        return -1;
+        struct addrinfo hints;
+        struct addrinfo* res = nullptr;
+        std::memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+        hints.ai_flags = AI_NUMERICHOST;
+
+        if (getaddrinfo(ld.address.c_str(), nullptr, &hints, &res) != 0 || !res)
+        {
+            std::cerr << "getaddrinfo() failed for address: " << ld.address << std::endl;
+            ::close(fd);
+            return -1;
+        }
+        struct sockaddr_in* ipv4 = reinterpret_cast<struct sockaddr_in*>(res->ai_addr);
+        addr.sin_addr = ipv4->sin_addr;
+        freeaddrinfo(res);
     }
 
     if (bind(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) < 0)
