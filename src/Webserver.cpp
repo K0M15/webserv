@@ -105,7 +105,7 @@ int Webserver::createListenSocket(const ListenDirective& ld)
     }
     int flags = 0;
 #if defined(REAPPLY_SET_FLAGS) && defined(SETFD_ALLOWED)
-    flags = fcntl(fd, GETFD);
+    flags = fcntl(fd, F_GETFD);
     if (fcntl(fd, F_SETFD, flags | FD_CLOEXEC) < 0)
 #else
     (void) flags;

@@ -85,8 +85,8 @@
 // #define DISABLE_DELETE_AUTH
 // #define DISABLE_PATCH_AUTH
 // #define DISABLE_PUT_AUTH
-// #define REAPPLY_SET_FLAGS        // Rule in subject against F_GETFD, F_GETFL
-// #define SETFD_ALLOWED            // Rule in subject against SETFD (which disables FD_CLOEXEC, which is allowed)
+#define REAPPLY_SET_FLAGS        // Rule in subject against F_GETFD, F_GETFL for MACOS
+#define SETFD_ALLOWED            // Rule in subject against SETFD (which disables FD_CLOEXEC, which is allowed) for MACOS
 
 // Debug Flag
 // # define DEBUG

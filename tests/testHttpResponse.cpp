@@ -1,4 +1,4 @@
-#include "HttpResponse.hpp"
+#include "Response.hpp"
 #include <iostream>
 #include <string>
 
@@ -31,7 +31,7 @@ static bool str_contains(const std::string& haystack, const std::string& needle)
 // --------------- construction / defaults ---------------
 
 static void test_default_constructor() {
-	HttpResponse resp;
+	Response resp;
 	check("default: status is 200", resp.getStatus() == 200);
 	check("default: body is empty", resp.getBody().empty());
 	check("default: keep_alive is false", resp.getKeepAlive() == false);
@@ -41,7 +41,7 @@ static void test_default_constructor() {
 // --------------- setters / getters ---------------
 
 static void test_setStatus() {
-	HttpResponse resp;
+	Response resp;
 	resp.setStatus(404);
 	check("setStatus(404): getStatus returns 404", resp.getStatus() == 404);
 	resp.setStatus(500);
@@ -49,17 +49,17 @@ static void test_setStatus() {
 }
 
 static void test_setBody() {
-	HttpResponse resp;
+	Response resp;
 	resp.setBody("Hello World");
 	check("setBody: getBody returns correct string", resp.getBody() == "Hello World");
 
-	HttpResponse resp2;
+	Response resp2;
 	resp2.setBody("");
 	check("setBody empty: getBody returns empty", resp2.getBody().empty());
 }
 
 static void test_setKeepAlive() {
-	HttpResponse resp;
+	Response resp;
 	resp.setKeepAlive(true);
 	check("setKeepAlive(true): getKeepAlive is true", resp.getKeepAlive() == true);
 	resp.setKeepAlive(false);
@@ -69,7 +69,7 @@ static void test_setKeepAlive() {
 // --------------- headers ---------------
 
 static void test_addHeader() {
-	HttpResponse resp;
+	Response resp;
 	resp.addHeader("Content-Type", "text/plain");
 	const auto& headers = resp.getHeaders();
 	check("addHeader: header count is 1", headers.size() == 1);
@@ -78,7 +78,7 @@ static void test_addHeader() {
 }
 
 static void test_addHeader_overwrite() {
-	HttpResponse resp;
+	Response resp;
 	resp.addHeader("X-Custom", "first");
 	resp.addHeader("X-Custom", "second");
 	check("addHeader overwrite: key exists", resp.getHeaders().find("X-Custom") != resp.getHeaders().end());
@@ -86,7 +86,7 @@ static void test_addHeader_overwrite() {
 }
 
 static void test_addMultipleHeaders() {
-	HttpResponse resp;
+	Response resp;
 	resp.addHeader("Content-Type", "text/html");
 	resp.addHeader("Server", "webserv");
 	resp.addHeader("X-Frame-Options", "DENY");
@@ -94,14 +94,14 @@ static void test_addMultipleHeaders() {
 }
 
 static void test_removeHeader() {
-	HttpResponse resp;
+	Response resp;
 	resp.addHeader("X-Test", "value");
 	resp.removeHeader("X-Test");
 	check("removeHeader: header removed", resp.getHeaders().find("X-Test") == resp.getHeaders().end());
 }
 
 static void test_removeHeader_nonexistent() {
-	HttpResponse resp;
+	Response resp;
 	resp.addHeader("X-Test", "value");
 	resp.removeHeader("X-DoesNotExist");
 	check("removeHeader nonexistent: no crash", resp.getHeaders().size() == 1);
@@ -110,13 +110,13 @@ static void test_removeHeader_nonexistent() {
 // --------------- toString ---------------
 
 static void test_toString_startLine() {
-	HttpResponse resp;
+	Response resp;
 	std::string out = resp.toString();
 	check("toString startLine: HTTP/1.1 present", str_contains(out, "HTTP/1.1 200 OK\r\n"));
 }
 
 static void test_toString_statusChange() {
-	HttpResponse resp;
+	Response resp;
 	resp.setStatus(404);
 	std::string out = resp.toString();
 	check("toString status 404: in output", str_contains(out, "HTTP/1.1 404 Not Found\r\n"));
@@ -127,35 +127,35 @@ static void test_toString_statusChange() {
 }
 
 static void test_toString_connectionClose() {
-	HttpResponse resp;
+	Response resp;
 	resp.setKeepAlive(false);
 	std::string out = resp.toString();
 	check("toString close: Connection: close", str_contains(out, "Connection: close\r\n"));
 }
 
 static void test_toString_connectionKeepAlive() {
-	HttpResponse resp;
+	Response resp;
 	resp.setKeepAlive(true);
 	std::string out = resp.toString();
 	check("toString keep-alive: Connection: keep-alive", str_contains(out, "Connection: keep-alive\r\n"));
 }
 
 static void test_toString_contentLength() {
-	HttpResponse resp;
+	Response resp;
 	resp.setBody("12345");
 	std::string out = resp.toString();
 	check("toString Content-Length: 5", str_contains(out, "Content-Length: 5\r\n"));
 }
 
 static void test_toString_contentTypeDefault() {
-	HttpResponse resp;
+	Response resp;
 	resp.setBody("<html></html>");
 	std::string out = resp.toString();
 	check("toString default Content-Type: text/html", str_contains(out, "Content-Type: text/html\r\n"));
 }
 
 static void test_toString_contentTypeCustom() {
-	HttpResponse resp;
+	Response resp;
 	resp.addHeader("Content-Type", "application/json");
 	resp.setBody("{}");
 	std::string out = resp.toString();
@@ -163,7 +163,7 @@ static void test_toString_contentTypeCustom() {
 }
 
 static void test_toString_bodyInOutput() {
-	HttpResponse resp;
+	Response resp;
 	resp.setBody("<h1>Test</h1>");
 	std::string out = resp.toString();
 	check("toString body: present", str_contains(out, "<h1>Test</h1>"));
@@ -171,21 +171,21 @@ static void test_toString_bodyInOutput() {
 }
 
 static void test_toString_customHeaderInOutput() {
-	HttpResponse resp;
+	Response resp;
 	resp.addHeader("X-Powered-By", "webserv");
 	std::string out = resp.toString();
 	check("toString custom header: present", str_contains(out, "X-Powered-By: webserv\r\n"));
 }
 
 static void test_toString_emptyBody() {
-	HttpResponse resp;
+	Response resp;
 	resp.setBody("");
 	std::string out = resp.toString();
 	check("toString empty body: no body output", out.find("\r\n\r\n") == out.size() - 4);
 }
 
 static void test_toString_separator() {
-	HttpResponse resp;
+	Response resp;
 	resp.setBody("test");
 	std::string out = resp.toString();
 	check("toString separator: \\r\\n\\r\\n before body",
@@ -195,7 +195,7 @@ static void test_toString_separator() {
 // --------------- error() ---------------
 
 static void test_error_factory_200() {
-	HttpResponse resp = HttpResponse::error(200);
+	Response resp = Response::error(200);
 	std::string out = resp.toString();
 	check("error(200): status 200", resp.getStatus() == 200);
 	check("error(200): body contains 200", str_contains(resp.getBody(), "200"));
@@ -203,32 +203,32 @@ static void test_error_factory_200() {
 }
 
 static void test_error_factory_404() {
-	HttpResponse resp = HttpResponse::error(404);
+	Response resp = Response::error(404);
 	check("error(404): status 404", resp.getStatus() == 404);
 	check("error(404): body contains 404", str_contains(resp.getBody(), "404"));
 	check("error(404): body contains Not Found", str_contains(resp.getBody(), "Not Found"));
 }
 
 static void test_error_factory_500() {
-	HttpResponse resp = HttpResponse::error(500);
+	Response resp = Response::error(500);
 	check("error(500): status 500", resp.getStatus() == 500);
 	check("error(500): body contains 500", str_contains(resp.getBody(), "500"));
 }
 
 static void test_error_factory_501() {
-	HttpResponse resp = HttpResponse::error(501);
+	Response resp = Response::error(501);
 	check("error(501): status 501", resp.getStatus() == 501);
 	check("error(501): keep_alive false", resp.getKeepAlive() == false);
 }
 
 static void test_error_factory_301() {
-	HttpResponse resp = HttpResponse::error(301);
+	Response resp = Response::error(301);
 	check("error(301): status 301", resp.getStatus() == 301);
 	check("error(301): body contains 301", str_contains(resp.getBody(), "301"));
 }
 
 int main() {
-	std::cout << "--- HttpResponse Tests ---\n" << std::endl;
+	std::cout << "--- Response Tests ---\n" << std::endl;
 
 	std::cout << "Construction & Defaults:" << std::endl;
 	test_default_constructor();

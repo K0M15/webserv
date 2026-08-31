@@ -121,7 +121,7 @@ testCGI: createTestDIR
 testHead: createTestDIR
 	$(CXX) $(CXXFLAGS) src/CGIHandler.cpp src/Request.cpp src/Chunked.cpp src/ConnectionManager.cpp src/RequestHandler.cpp src/SessionManager.cpp src/PathUtils.cpp src/PollHandler.cpp src/Response.cpp src/HttpStatusReason.cpp src/URL.cpp src/WebserverSettings.cpp tests/testHead.cpp -o bin/testHead
 
-tests: testRequest testURL testChunked testPollHandler testConfigReader testResponse testHttpStatusReason testWebserverSettings testCGI testHead testExpect
+tests: testRequest testURL testChunked testPollHandler testConfigReader testHttpResponse testHttpStatusReason testWebserverSettings testCGI testHead testExpect
 	./bin/testRequest tests/sample_request.txt
 	./bin/testURL
 	./bin/testChunked
