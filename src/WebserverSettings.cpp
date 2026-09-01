@@ -64,7 +64,7 @@ WebserverSettings WebserverSettings::getDefaultSettings()
     WebserverSettings settings;
     settings.dirindex = false;
     settings.index = DEFAULT_INDEX_FILE;
-    settings.root = "";
+    settings.root = ".";
     settings.missing_content_type_policy = MissingContentTypePolicy::REJECT;
     settings.max_cgi_output = DEFAULT_MAX_CGI_OUTPUT;
     settings.max_body_size = DEFAULT_MAX_BODY_SIZE;
@@ -96,7 +96,10 @@ using Handler = std::function<void(const std::string& val, ConfigTarget target)>
 /* val is the value after the key in config and what should be placed in the target*/
 #define PUT_INTO(x) [](const std::string& val, ConfigTarget t){x}
 const std::unordered_map<std::string, Handler> entryParser = {
-    {"root", PUT_INTO( *t.root = val; )},
+    {"root", PUT_INTO(
+        *t.root = val;
+        std::cout << "[Info] Serving folder "<< val << std::endl; 
+    )},
     {"index", PUT_INTO( *t.index = val; )},
     {"dirindex", PUT_INTO( *t.dirindex = (val == "on" || val == "true");)},
     {"missing_content_type", PUT_INTO(
@@ -348,5 +351,7 @@ WebserverSettings WebserverSettings::fromBlock(const std::string& block)
         ConfigTarget& target = in_loc ? loc_target : starget;
         dispatch(line, target);
     }
+    if (settings.root == ".")
+        std::cout << "[Info] Serving this folder!" << std::endl; 
     return settings;
 }

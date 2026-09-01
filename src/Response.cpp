@@ -135,6 +135,9 @@ Response Response::dirindex(const std::string& path, const std::string prefix)
     document << "<body><h1>Index of "<< prefix <<"</h1><hr><table>";
     document << "<thead><tr><th>Name</th><th>Size</th><th>Last modified</th></tr></thead>";
     DIR* dir = ::opendir(path.c_str());
+    std::string href = prefix;
+    if (href.empty() || href.back() != '/')
+        href += "/";
     if (dir)
     {
         struct dirent* entry;
@@ -145,7 +148,7 @@ Response Response::dirindex(const std::string& path, const std::string prefix)
                 continue;
             if (stat(std::string(path + "/" + entry->d_name).c_str(), &entryStat))
             {
-#ifndef DEBUG
+#ifdef DEBUG
                 std::cout << "[Error] stat reading " << path << entry->d_name << " , error reading directory entry" << std::endl;
                 document << "<tr><td><a href=\"" << prefix + "/" + entry->d_name << "\">" << entry->d_name <<"</a></td><td>" << entry->d_reclen <<" byte </td></tr>\n";                
                 continue;
@@ -154,7 +157,10 @@ Response Response::dirindex(const std::string& path, const std::string prefix)
             size_t s = entryStat.st_size;
             time_t mtime = entryStat.st_mtime;
             std::tm local_tm = *std::localtime(&mtime);
-            document << "<tr><td><a href=\"" << prefix + "/" + entry->d_name << "\">" << entry->d_name <<"</a></td><td>" << s <<" byte </td><td>" << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S") << "</td></tr>\n";
+            if (S_ISDIR(entryStat.st_mode))
+                document << "<tr><td><a href=\"" <<  href + entry->d_name + "/" << "\">" << entry->d_name <<"</a></td><td>DIRECTORY</td><td>" << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S") << "</td></tr>\n";
+            else
+                document << "<tr><td><a href=\"" <<  href + entry->d_name << "\">" << entry->d_name <<"</a></td><td>" << s <<" byte </td><td>" << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S") << "</td></tr>\n";
         }
         ::closedir(dir);
     }

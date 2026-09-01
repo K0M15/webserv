@@ -319,8 +319,8 @@ void RequestHandler::handleGet(Connection &conn, const std::string &root,
         connManager.sendResponse(conn, resp);
         return;
     }
-
-    if (url_path.back() == '/' && (conn.settings->dirindex || (location && location->dirindex)))
+    bool is_dirindex = location ? location->dirindex : conn.settings->dirindex;
+    if (url_path.back() == '/' && is_dirindex)
     {
         connManager.sendResponse(conn, Response::dirindex(root + url_path, url_path));
         return;
