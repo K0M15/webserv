@@ -252,6 +252,13 @@ void ConnectionManager::handleRequestFD(int fd)
         conn.keep_alive = false;
         sendResponse(conn, resp);
     }
+    catch (const std::exception& e)
+    {
+        Response resp = Response::errorResponse(400, conn.settings, nullptr);
+        resp.setKeepAlive(false);
+        conn.keep_alive = false;
+        sendResponse(conn, resp);
+    }
 }
 
 bool ConnectionManager::tryCGI(int fd, const std::string &filePath,
