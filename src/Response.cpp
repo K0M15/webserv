@@ -189,7 +189,8 @@ Response Response::errorResponse(
                                ? location->root
                                : settings->root;
         // check for trailing /
-        root = root.back() == '/' ? root : root + "/";
+        if (!root.empty() && root.back() != '/')
+            root += "/";
         std::string full_path = root + *error_path;
 
         std::ifstream file(full_path);
