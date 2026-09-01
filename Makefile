@@ -70,6 +70,7 @@ createTestDIR:
 
 clean:
 	@rm -f $(OBJS) $(DEPS)
+	@rm -rf bin
 
 fclean: clean
 	@rm -f $(NAME)
