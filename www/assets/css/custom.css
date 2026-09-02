@@ -1,0 +1,407 @@
+/* Project-specific additions on top of the HTML5UP "Strongly Typed" theme. */
+
+/* This theme has no built-in "small" button size - used on the upload
+   card's Browse/Upload buttons, which sit in a tight grid tile. */
+.button-compact {
+	padding: 0.55em 1.25em;
+	font-size: 0.7em;
+	letter-spacing: 1px;
+}
+
+/* Nav - always visible and centered under the header description, at
+   every screen width. The theme's default behaviour collapses this into a
+   hamburger + off-canvas panel below 980px; main.js no longer builds that
+   panel, and this overrides the matching main.css media query that hides
+   #nav on narrow screens. */
+#nav {
+	position: static;
+	display: block !important;
+	width: auto;
+	margin: 1.5em 0 0 0;
+	cursor: default;
+}
+
+/* Half the theme's default vertical whitespace around the header/title. */
+#header > .container {
+	padding: 7em 0 3.5em 0;
+}
+
+@media screen and (max-width: 1280px) {
+	#header > .container {
+		padding: 6em 0 2.5em 0;
+	}
+}
+
+@media screen and (max-width: 980px) {
+	#header > .container {
+		padding: 5em 0 3.5em 0;
+	}
+}
+
+@media screen and (max-width: 736px) {
+	#header > .container {
+		padding: 3em 0 2em 0;
+	}
+}
+
+/* Centers a heading without affecting other .box.post headers site-wide. */
+.text-center {
+	text-align: center;
+}
+
+/* Auth modal */
+
+#authModalOverlay {
+	display: none;
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.6);
+	z-index: 10001;
+	align-items: center;
+	justify-content: center;
+}
+
+#authModalOverlay.is-visible {
+	display: flex;
+}
+
+#authModal {
+	position: relative;
+	background: #fff;
+	padding: 2.5em 2em 2em 2em;
+	border-radius: 4px;
+	width: 90%;
+	max-width: 340px;
+}
+
+#authModalClose {
+	position: absolute;
+	top: 0.65em;
+	right: 0.65em;
+	width: auto;
+	display: inline-block;
+	padding: 0.4em 0.9em;
+	background: #888;
+	border: 0;
+	border-radius: 4px;
+	cursor: pointer;
+	color: #fff;
+	font-size: 0.8em;
+}
+
+#authModalClose:hover {
+	background: #767676;
+}
+
+#authModal h3 {
+	margin: 0 0 0.75em 0;
+}
+
+#authModal .row {
+	margin: 0 0 0.75em 0;
+}
+
+#authModal input {
+	margin-bottom: 0.5em;
+}
+
+#authMessage {
+	font-size: 0.8em;
+	margin: 0.5em 0 0 0;
+}
+
+#authMessage.error {
+	color: #d64541;
+}
+
+#authMessage.success {
+	color: #2f9e44;
+}
+
+/* Gallery grid - starts at 3x2 (5 seeded photos + upload tile), grows to
+   3x3 as uploads come in, then paginates nine tiles per page. */
+
+.gallery-grid {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 1.25em;
+}
+
+@media (max-width: 736px) {
+	.gallery-grid {
+		grid-template-columns: repeat(2, 1fr);
+	}
+}
+
+@media (max-width: 480px) {
+	.gallery-grid {
+		grid-template-columns: 1fr;
+	}
+}
+
+.gallery-card {
+	display: block;
+	position: relative;
+	border-radius: 4px;
+	overflow: hidden;
+	background: #fff;
+	aspect-ratio: 1 / 1;
+}
+
+.gallery-card-link {
+	display: block;
+	width: 100%;
+	height: 100%;
+}
+
+.gallery-card img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+
+/* White title, centered, shown on hover */
+.gallery-card-title {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0.75em;
+	color: #fff;
+	text-align: center;
+	background: rgba(0, 0, 0, 0.45);
+	opacity: 0;
+	transition: opacity 0.25s ease;
+	pointer-events: none;
+	font-size: xx-large;
+}
+
+.gallery-card:hover .gallery-card-title {
+	opacity: 1;
+}
+
+/* Trash icon, bottom-right, on every panel - deleting calls the
+   admin-gated DELETE endpoint for that item. */
+.gallery-card-delete {
+	position: absolute;
+	left: 0em;
+	bottom: 0.5em;
+	width: 2.5em;
+	height: 2.5em;
+	padding: 0;
+	padding-left: 1em;
+	margin: 0;
+	margin-left: 0.4em;
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	line-height: 1;
+	border-radius: 0;
+	border: 0;
+	background: rgba(0, 0, 0, 0.55);
+	color: #fff;
+	cursor: pointer;
+	z-index: 2;
+	-webkit-appearance: none;
+	appearance: none;
+}
+
+.gallery-card-delete:hover {
+	background: #d64541;
+}
+
+.upload-card {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+	gap: 0.5em;
+	padding: 1em;
+	border: 2px dashed rgba(0, 0, 0, 0.2);
+}
+
+.upload-card .icon {
+	font-size: 1.5em;
+	align-self: center;
+}
+
+.upload-card p {
+	font-size: 0.8em;
+	margin: 0;
+}
+
+.upload-card-state[hidden] {
+	display: none;
+}
+
+#uploadForm[hidden] {
+	display: none;
+}
+
+#uploadForm {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 0.5em;
+	width: 100%;
+}
+
+/* Native file input hidden; the label wears the button styling instead so
+   it can carry a grey/green state. */
+#uploadFile {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	opacity: 0;
+}
+
+#uploadFileLabel {
+	background: #9a9a9a;
+	cursor: pointer;
+}
+
+#uploadFileLabel:hover {
+	background: #aaaaaa;
+}
+
+#uploadFileLabel.has-file {
+	background: #2f9e44;
+}
+
+#uploadFileLabel.has-file:hover {
+	background: #3cb954;
+}
+
+/* Browse (left) + Upload (right), flush with the title/description fields */
+.upload-actions {
+	display: flex;
+	gap: 0.5em;
+	width: 100%;
+}
+
+.upload-actions .button {
+	flex: 1 1 0;
+	min-width: 0;
+	box-sizing: border-box;
+	height: 2.7em;
+	padding: 0 1.25em;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+#uploadTitle,
+#uploadDescription {
+	width: 100%;
+	box-sizing: border-box;
+	background-color: #dddddd;
+	color: #666666;
+	padding: 0.6em 0.75em;
+	border-radius: 8px;
+	border: 2px solid transparent;
+	outline: none;
+	font-family: inherit;
+	font-weight: 500;
+	font-size: 0.75em;
+	line-height: 1.4;
+	transition: all 0.2s;
+}
+
+#uploadTitle:hover,
+#uploadDescription:hover {
+	cursor: pointer;
+	background-color: #eeeeee;
+}
+
+#uploadTitle:focus,
+#uploadDescription:focus {
+	cursor: text;
+	color: #333333;
+	background-color: #ffffff;
+	border-color: #333333;
+}
+
+#uploadDescription {
+	min-height: 15.5em;
+	resize: none;
+}
+
+#uploadMessage {
+	font-size: 0.7em;
+	margin: 0;
+	word-break: break-word;
+}
+
+#uploadMessage.error {
+	color: #d64541;
+}
+
+#uploadMessage.success {
+	color: #2f9e44;
+}
+
+/* Pagination, shown once there are more than nine tiles */
+
+#galleryPager {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 1.5em;
+	margin-top: 1.25em;
+}
+
+#galleryPager[hidden] {
+	display: none;
+}
+
+#galleryPager button {
+	background: none;
+	border: 0;
+	cursor: pointer;
+	font-size: 1.25em;
+	color: inherit;
+}
+
+#galleryPageIndicator {
+	font-size: 0.8em;
+	opacity: 0.7;
+}
+
+#galleryMessage {
+	font-size: 0.8em;
+	margin-top: 0.75em;
+	text-align: center;
+}
+
+#galleryMessage.error {
+	color: #d64541;
+}
+
+#galleryMessage.success {
+	color: #2f9e44;
+}
+
+/* Standalone gallery photo pages (gallery/gallery-N.html and uploaded
+   companion pages generated by gallery.js) */
+
+.gallery-page {
+	max-width: 640px;
+	margin: 3em auto;
+	padding: 0 1.5em;
+	text-align: center;
+}
+
+.gallery-page img {
+	max-width: 100%;
+	border-radius: 6px;
+}
+
+.gallery-page .back-link {
+	display: inline-block;
+	margin-top: 1.5em;
+}
